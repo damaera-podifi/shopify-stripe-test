@@ -33,6 +33,12 @@ export function StoreHeader({
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <Link
+            href="/store/orders"
+            className="rounded-full border border-zinc-300 px-4 py-2 text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+          >
+            My orders
+          </Link>
+          <Link
             href="/store/cart"
             className="relative rounded-full border border-zinc-300 px-4 py-2 text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
           >
