@@ -19,4 +19,19 @@ export function getShopifyAdminToken(): string {
   return requireEnv("SHOPIFY_ADMIN_ACCESS_TOKEN");
 }
 
+export function hasShopifyAppCredentials(): boolean {
+  return Boolean(
+    process.env.SHOPIFY_APP_CLIENT_ID?.trim() &&
+      process.env.SHOPIFY_APP_CLIENT_SECRET?.trim(),
+  );
+}
+
+export function getShopifyAppClientId(): string {
+  return requireEnv("SHOPIFY_APP_CLIENT_ID");
+}
+
+export function getShopifyAppClientSecret(): string {
+  return requireEnv("SHOPIFY_APP_CLIENT_SECRET");
+}
+
 export const SHOPIFY_API_VERSION = "2024-10";

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { fulfillStripePayment } from "@/lib/checkout/fulfillment";
+import { logCheckout, logCheckoutError } from "@/lib/checkout/logger";
 
 export const metadata = {
   title: "Order confirmed | MLPA Health",
@@ -25,9 +26,15 @@ export default async function CheckoutSuccessPage({
   let error: string | null = null;
 
   try {
+    logCheckout("success_page_fulfillment_start", { paymentIntentId });
     const result = await fulfillStripePayment(paymentIntentId);
     orderName = result.shopifyOrderName ?? orderName;
+    logCheckout("success_page_fulfillment_ok", {
+      paymentIntentId,
+      shopifyOrderName: orderName,
+    });
   } catch (e) {
+    logCheckoutError("success_page_fulfillment_failed", e, { paymentIntentId });
     error = e instanceof Error ? e.message : "Could not confirm your order";
   }
 

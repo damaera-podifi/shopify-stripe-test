@@ -1,4 +1,5 @@
 import type Stripe from "stripe";
+import { logCheckout, logCheckoutError } from "./logger";
 import type { CheckoutLineItemMeta, CheckoutShippingInput } from "./types";
 import { clearCartIdCookie, getCartIdFromCookie } from "@/lib/shopify/cart-cookie";
 import { adminGraphql } from "@/lib/shopify/admin";
@@ -47,6 +48,13 @@ async function createAndCompleteDraftOrder(
   lineItems: CheckoutLineItemMeta[],
   paymentIntentId: string,
 ): Promise<FulfillmentResult> {
+  logCheckout("draft_order_create_start", {
+    paymentIntentId,
+    email: shipping.email,
+    lineItemCount: lineItems.length,
+    variantIds: lineItems.map((item) => item.variantId),
+  });
+
   const createMutation = `#graphql
     mutation DraftOrderCreate($input: DraftOrderInput!) {
       draftOrderCreate(input: $input) {
@@ -64,30 +72,45 @@ async function createAndCompleteDraftOrder(
   const createData = await adminGraphql<{
     draftOrderCreate: {
       draftOrder: { id: string } | null;
-      userErrors: Array<{ message: string }>;
+      userErrors: Array<{ field?: string[]; message: string }>;
     };
-  }>(createMutation, {
-    input: {
-      email: shipping.email,
-      note: `Paid via Stripe PaymentIntent ${paymentIntentId}`,
-      lineItems: lineItems.map((item) => ({
-        variantId: item.variantId,
-        quantity: item.quantity,
-      })),
-      shippingAddress: mailingAddress(shipping),
-      billingAddress: mailingAddress(shipping),
+  }>(
+    createMutation,
+    {
+      input: {
+        email: shipping.email,
+        note: `Paid via Stripe PaymentIntent ${paymentIntentId}`,
+        lineItems: lineItems.map((item) => ({
+          variantId: item.variantId,
+          quantity: item.quantity,
+        })),
+        shippingAddress: mailingAddress(shipping),
+        billingAddress: mailingAddress(shipping),
+      },
     },
-  });
+    { operation: "draftOrderCreate" },
+  );
 
   const createErrors = createData.draftOrderCreate.userErrors;
   if (createErrors.length) {
+    logCheckoutError("draft_order_create_user_errors", new Error("userErrors"), {
+      paymentIntentId,
+      userErrors: createErrors,
+    });
     throw new Error(createErrors.map((e) => e.message).join(", "));
   }
 
   const draftOrderId = createData.draftOrderCreate.draftOrder?.id;
   if (!draftOrderId) {
+    logCheckoutError("draft_order_create_missing_id", new Error("no draft order"), {
+      paymentIntentId,
+    });
     throw new Error("Failed to create Shopify draft order");
   }
+
+  logCheckout("draft_order_create_ok", { paymentIntentId, draftOrderId });
+
+  logCheckout("draft_order_complete_start", { paymentIntentId, draftOrderId });
 
   const completeMutation = `#graphql
     mutation DraftOrderComplete($id: ID!) {
@@ -109,19 +132,34 @@ async function createAndCompleteDraftOrder(
   const completeData = await adminGraphql<{
     draftOrderComplete: {
       draftOrder: { order: { id: string; name: string } | null } | null;
-      userErrors: Array<{ message: string }>;
+      userErrors: Array<{ field?: string[]; message: string }>;
     };
-  }>(completeMutation, { id: draftOrderId });
+  }>(completeMutation, { id: draftOrderId }, { operation: "draftOrderComplete" });
 
   const completeErrors = completeData.draftOrderComplete.userErrors;
   if (completeErrors.length) {
+    logCheckoutError("draft_order_complete_user_errors", new Error("userErrors"), {
+      paymentIntentId,
+      draftOrderId,
+      userErrors: completeErrors,
+    });
     throw new Error(completeErrors.map((e) => e.message).join(", "));
   }
 
   const order = completeData.draftOrderComplete.draftOrder?.order;
   if (!order) {
+    logCheckoutError("draft_order_complete_missing_order", new Error("no order"), {
+      paymentIntentId,
+      draftOrderId,
+    });
     throw new Error("Failed to complete Shopify draft order");
   }
+
+  logCheckout("draft_order_complete_ok", {
+    paymentIntentId,
+    shopifyOrderId: order.id,
+    shopifyOrderName: order.name,
+  });
 
   return {
     shopifyOrderId: order.id,
@@ -132,41 +170,66 @@ async function createAndCompleteDraftOrder(
 export async function fulfillStripePayment(
   paymentIntentId: string,
 ): Promise<FulfillmentResult> {
-  const stripe = getStripe();
-  const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+  logCheckout("fulfillment_start", { paymentIntentId });
 
-  if (paymentIntent.status !== "succeeded") {
-    throw new Error("Payment has not succeeded yet");
+  try {
+    const stripe = getStripe();
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+    logCheckout("fulfillment_payment_intent", {
+      paymentIntentId,
+      status: paymentIntent.status,
+      hasShopifyOrder: Boolean(paymentIntent.metadata.shopify_order_id),
+      metadataKeys: Object.keys(paymentIntent.metadata),
+    });
+
+    if (paymentIntent.status !== "succeeded") {
+      throw new Error("Payment has not succeeded yet");
+    }
+
+    if (paymentIntent.metadata.shopify_order_id) {
+      logCheckout("fulfillment_already_done", {
+        paymentIntentId,
+        shopifyOrderId: paymentIntent.metadata.shopify_order_id,
+        shopifyOrderName: paymentIntent.metadata.shopify_order_name,
+      });
+      return {
+        shopifyOrderId: paymentIntent.metadata.shopify_order_id,
+        shopifyOrderName: paymentIntent.metadata.shopify_order_name || null,
+      };
+    }
+
+    const lineItems = parseLineItems(paymentIntent.metadata);
+    const shipping = parseShipping(paymentIntent.metadata);
+    const result = await createAndCompleteDraftOrder(
+      shipping,
+      lineItems,
+      paymentIntentId,
+    );
+
+    await stripe.paymentIntents.update(paymentIntentId, {
+      metadata: {
+        ...paymentIntent.metadata,
+        shopify_order_id: result.shopifyOrderId,
+        shopify_order_name: result.shopifyOrderName ?? "",
+      },
+    });
+
+    const cartId = paymentIntent.metadata.cart_id;
+    const cookieCartId = await getCartIdFromCookie();
+    if (cartId && cookieCartId === cartId) {
+      await clearCartIdCookie();
+    }
+
+    logCheckout("fulfillment_ok", {
+      paymentIntentId,
+      shopifyOrderId: result.shopifyOrderId,
+      shopifyOrderName: result.shopifyOrderName,
+    });
+
+    return result;
+  } catch (error) {
+    logCheckoutError("fulfillment_failed", error, { paymentIntentId });
+    throw error;
   }
-
-  if (paymentIntent.metadata.shopify_order_id) {
-    return {
-      shopifyOrderId: paymentIntent.metadata.shopify_order_id,
-      shopifyOrderName: paymentIntent.metadata.shopify_order_name || null,
-    };
-  }
-
-  const lineItems = parseLineItems(paymentIntent.metadata);
-  const shipping = parseShipping(paymentIntent.metadata);
-  const result = await createAndCompleteDraftOrder(
-    shipping,
-    lineItems,
-    paymentIntentId,
-  );
-
-  await stripe.paymentIntents.update(paymentIntentId, {
-    metadata: {
-      ...paymentIntent.metadata,
-      shopify_order_id: result.shopifyOrderId,
-      shopify_order_name: result.shopifyOrderName ?? "",
-    },
-  });
-
-  const cartId = paymentIntent.metadata.cart_id;
-  const cookieCartId = await getCartIdFromCookie();
-  if (cartId && cookieCartId === cartId) {
-    await clearCartIdCookie();
-  }
-
-  return result;
 }
