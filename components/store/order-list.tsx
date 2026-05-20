@@ -3,16 +3,18 @@ import type { OrderListItem } from "@/lib/checkout/order-details";
 import { formatPrice } from "@/lib/shopify/products";
 
 type OrderListProps = {
-  email: string;
+  accountEmail: string;
   orders: OrderListItem[];
 };
 
-export function OrderList({ email, orders }: OrderListProps) {
+export function OrderList({ accountEmail, orders }: OrderListProps) {
   if (orders.length === 0) {
     return (
       <p className="mt-8 text-center text-sm text-zinc-600 dark:text-zinc-400">
-        No orders found for{" "}
-        <span className="font-medium text-zinc-900 dark:text-zinc-50">{email}</span>
+        No orders linked to{" "}
+        <span className="font-medium text-zinc-900 dark:text-zinc-50">
+          {accountEmail}
+        </span>
         .
       </p>
     );
@@ -25,7 +27,7 @@ export function OrderList({ email, orders }: OrderListProps) {
           dateStyle: "medium",
           timeStyle: "short",
         });
-        const detailHref = `/store/orders/detail?email=${encodeURIComponent(email)}&id=${encodeURIComponent(order.id)}`;
+        const detailHref = `/store/orders/detail?id=${encodeURIComponent(order.id)}`;
 
         return (
           <li key={order.id}>

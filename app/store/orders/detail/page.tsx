@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { OrderActionsPanel } from "@/components/store/order-actions-panel";
 import { OrderSummary } from "@/components/store/order-summary";
-import { getShopifyOrderDetailsForEmail } from "@/lib/checkout/order-details";
+import { getStoreSession } from "@/lib/auth/session";
+import { getShopifyOrderDetailsForUser } from "@/lib/checkout/order-details";
 import { logCheckout, logCheckoutError } from "@/lib/checkout/logger";
 
 export const metadata = {
@@ -10,17 +12,21 @@ export const metadata = {
 };
 
 type OrderDetailPageProps = {
-  searchParams: Promise<{ email?: string; id?: string }>;
+  searchParams: Promise<{ id?: string }>;
 };
 
 export default async function OrderDetailPage({
   searchParams,
 }: OrderDetailPageProps) {
+  const session = await getStoreSession();
+  if (!session) {
+    redirect("/store/login?redirect=/store/orders");
+  }
+
   const params = await searchParams;
-  const email = params.email?.trim() ?? "";
   const orderId = params.id?.trim() ?? "";
 
-  if (!email || !orderId) {
+  if (!orderId) {
     redirect("/store/orders");
   }
 
@@ -28,22 +34,30 @@ export default async function OrderDetailPage({
   let error: string | null = null;
 
   try {
-    logCheckout("order_detail_start", { email, orderId });
-    order = await getShopifyOrderDetailsForEmail(orderId, email);
+    logCheckout("order_detail_start", {
+      userId: session.userId,
+      orderId,
+    });
+    order = await getShopifyOrderDetailsForUser(
+      orderId,
+      session.userId,
+      session.email,
+    );
     if (!order) {
-      error = "Order not found for this email.";
+      error = "Order not found for your account.";
     } else {
       logCheckout("order_detail_ok", {
-        email,
+        userId: session.userId,
         shopifyOrderName: order.name,
       });
     }
   } catch (e) {
-    logCheckoutError("order_detail_failed", e, { email, orderId });
+    logCheckoutError("order_detail_failed", e, {
+      userId: session.userId,
+      orderId,
+    });
     error = e instanceof Error ? e.message : "Could not load this order";
   }
-
-  const ordersHref = `/store/orders?email=${encodeURIComponent(email)}`;
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-16">
@@ -52,7 +66,13 @@ export default async function OrderDetailPage({
           Order details
         </h1>
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          {email}
+          Account: {session.email}
+          {order?.email && order.email !== session.email ? (
+            <>
+              {" "}
+              · Order contact: {order.email}
+            </>
+          ) : null}
         </p>
       </div>
 
@@ -61,12 +81,15 @@ export default async function OrderDetailPage({
           {error}
         </p>
       ) : order ? (
-        <OrderSummary order={order} />
+        <>
+          <OrderSummary order={order} />
+          <OrderActionsPanel order={order} />
+        </>
       ) : null}
 
       <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
         <Link
-          href={ordersHref}
+          href="/store/orders"
           className="inline-block rounded-full border border-zinc-300 px-6 py-3 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-900"
         >
           Back to my orders

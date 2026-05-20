@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { OrderEmailForm } from "@/components/store/order-email-form";
+import { redirect } from "next/navigation";
 import { OrderList } from "@/components/store/order-list";
-import { listShopifyOrdersByEmail } from "@/lib/checkout/order-details";
+import { getStoreSession } from "@/lib/auth/session";
+import { listShopifyOrdersForUser } from "@/lib/checkout/order-details";
 import { logCheckout, logCheckoutError } from "@/lib/checkout/logger";
 
 export const metadata = {
@@ -9,27 +10,28 @@ export const metadata = {
   description: "View your order history",
 };
 
-type OrdersPageProps = {
-  searchParams: Promise<{ email?: string }>;
-};
-
-export default async function OrdersPage({ searchParams }: OrdersPageProps) {
-  const params = await searchParams;
-  const email = params.email?.trim() ?? "";
-  const hasEmail = email.length > 0;
+export default async function OrdersPage() {
+  const session = await getStoreSession();
+  if (!session) {
+    redirect("/store/login?redirect=/store/orders");
+  }
 
   let orders = null;
   let error: string | null = null;
 
-  if (hasEmail) {
-    try {
-      logCheckout("orders_list_start", { email });
-      orders = await listShopifyOrdersByEmail(email);
-      logCheckout("orders_list_ok", { email, count: orders.length });
-    } catch (e) {
-      logCheckoutError("orders_list_failed", e, { email });
-      error = e instanceof Error ? e.message : "Could not load your orders";
-    }
+  try {
+    logCheckout("orders_list_start", {
+      userId: session.userId,
+      email: session.email,
+    });
+    orders = await listShopifyOrdersForUser(session.userId, session.email);
+    logCheckout("orders_list_ok", {
+      userId: session.userId,
+      count: orders.length,
+    });
+  } catch (e) {
+    logCheckoutError("orders_list_failed", e, { userId: session.userId });
+    error = e instanceof Error ? e.message : "Could not load your orders";
   }
 
   return (
@@ -39,12 +41,11 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
           My orders
         </h1>
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Look up orders with the email you used at checkout.
+          Signed in as{" "}
+          <span className="font-medium text-zinc-900 dark:text-zinc-50">
+            {session.email}
+          </span>
         </p>
-      </div>
-
-      <div className="mt-8">
-        <OrderEmailForm defaultEmail={email} />
       </div>
 
       {error ? (
@@ -53,8 +54,8 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         </p>
       ) : null}
 
-      {hasEmail && orders && !error ? (
-        <OrderList email={email} orders={orders} />
+      {orders && !error ? (
+        <OrderList accountEmail={session.email} orders={orders} />
       ) : null}
 
       <div className="mt-8 text-center">

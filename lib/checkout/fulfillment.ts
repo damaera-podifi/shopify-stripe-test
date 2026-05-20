@@ -1,6 +1,8 @@
 import type Stripe from "stripe";
 import { logCheckout, logCheckoutError } from "./logger";
 import type { CheckoutLineItemMeta, CheckoutShippingInput } from "./types";
+import { attachAppUserIdToOrder } from "./order-ownership";
+import { createUserIdFromEmail } from "@/lib/auth/user-id";
 import { clearCartIdCookie, getCartIdFromCookie } from "@/lib/shopify/cart-cookie";
 import { adminGraphql } from "@/lib/shopify/admin";
 import { getStripe } from "@/lib/stripe/server";
@@ -201,17 +203,24 @@ export async function fulfillStripePayment(
 
     const lineItems = parseLineItems(paymentIntent.metadata);
     const shipping = parseShipping(paymentIntent.metadata);
+    const appUserId =
+      paymentIntent.metadata.app_user_id?.trim() ||
+      createUserIdFromEmail(shipping.email);
+
     const result = await createAndCompleteDraftOrder(
       shipping,
       lineItems,
       paymentIntentId,
     );
 
+    await attachAppUserIdToOrder(result.shopifyOrderId, appUserId);
+
     await stripe.paymentIntents.update(paymentIntentId, {
       metadata: {
         ...paymentIntent.metadata,
         shopify_order_id: result.shopifyOrderId,
         shopify_order_name: result.shopifyOrderName ?? "",
+        app_user_id: appUserId,
       },
     });
 

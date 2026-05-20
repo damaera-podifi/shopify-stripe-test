@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { getStoreSession } from "@/lib/auth/session";
+import { createUserIdFromEmail } from "@/lib/auth/user-id";
 import { parseShippingFromBody } from "@/lib/checkout/validate-shipping";
 import { getCart } from "@/lib/shopify/cart";
 import { getStripe } from "@/lib/stripe/server";
@@ -39,6 +41,10 @@ export async function POST(request: Request) {
       quantity: line.quantity,
     }));
 
+    const session = await getStoreSession();
+    const appUserId =
+      session?.userId ?? createUserIdFromEmail(shippingResult.email);
+
     const stripe = getStripe();
     const paymentIntent = await stripe.paymentIntents.create({
       amount,
@@ -49,6 +55,7 @@ export async function POST(request: Request) {
         cart_id: cart.id,
         line_items: JSON.stringify(lineItems),
         shipping: JSON.stringify(shippingResult),
+        app_user_id: appUserId,
       },
     });
 

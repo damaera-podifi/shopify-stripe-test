@@ -18,6 +18,7 @@ type CheckoutFormProps = {
   totalAmount: string;
   totalQuantity: number;
   disabled?: boolean;
+  defaultEmail?: string;
 };
 
 const inputClassName =
@@ -250,6 +251,7 @@ export function CheckoutForm({
   totalAmount,
   totalQuantity,
   disabled = false,
+  defaultEmail = "",
 }: CheckoutFormProps) {
   const stripePromise = useMemo(
     () => loadStripe(publishableKey),
@@ -257,7 +259,7 @@ export function CheckoutForm({
   );
 
   const [shipping, setShipping] = useState<CheckoutShippingInput>({
-    email: "",
+    email: defaultEmail,
     firstName: "",
     lastName: "",
     address1: "",

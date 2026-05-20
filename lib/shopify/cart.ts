@@ -171,6 +171,79 @@ export async function createCart(
   return persistCart(data.cartCreate.cart);
 }
 
+export async function addManyToCart(
+  lines: Array<{ merchandiseId: string; quantity: number }>,
+): Promise<Cart> {
+  if (!lines.length) {
+    throw new Error("No cart lines provided");
+  }
+
+  const cartId = await getCartIdFromCookie();
+
+  if (!cartId) {
+    const mutation = `#graphql
+      mutation CartCreate($lines: [CartLineInput!]!) {
+        cartCreate(input: { lines: $lines }) {
+          cart {
+            ${CART_FIELDS}
+          }
+          userErrors {
+            message
+          }
+        }
+      }
+    `;
+
+    const data = await storefrontMutation<{
+      cartCreate: {
+        cart: CartPayload | null;
+        userErrors: Array<{ message: string }>;
+      };
+    }>(mutation, {
+      lines: lines.map((line) => ({
+        merchandiseId: line.merchandiseId,
+        quantity: line.quantity,
+      })),
+    });
+
+    const error = getUserErrors(data.cartCreate.userErrors);
+    if (error) throw new Error(error);
+
+    return persistCart(data.cartCreate.cart);
+  }
+
+  const mutation = `#graphql
+    mutation CartLinesAdd($cartId: ID!, $lines: [CartLineInput!]!) {
+      cartLinesAdd(cartId: $cartId, lines: $lines) {
+        cart {
+          ${CART_FIELDS}
+        }
+        userErrors {
+          message
+        }
+      }
+    }
+  `;
+
+  const data = await storefrontMutation<{
+    cartLinesAdd: {
+      cart: CartPayload | null;
+      userErrors: Array<{ message: string }>;
+    };
+  }>(mutation, {
+    cartId,
+    lines: lines.map((line) => ({
+      merchandiseId: line.merchandiseId,
+      quantity: line.quantity,
+    })),
+  });
+
+  const error = getUserErrors(data.cartLinesAdd.userErrors);
+  if (error) throw new Error(error);
+
+  return persistCart(data.cartLinesAdd.cart);
+}
+
 export async function addToCart(
   merchandiseId: string,
   quantity: number,

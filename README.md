@@ -25,7 +25,9 @@ pnpm install
 cp .env.example .env.local
 ```
 
-See `.env.example` for required Shopify and Stripe variables. The Admin token needs scopes to create and complete draft orders (e.g. `write_draft_orders`, `read_products`).
+See `.env.example` for required Shopify and Stripe variables. The Admin token needs scopes to create and complete draft orders (e.g. `write_draft_orders`, `read_products`), read/update orders (`read_orders`, `write_orders`), and returns (`read_returns`, `write_returns`).
+
+Set `SESSION_SECRET` to any long random string for signed customer sessions (email sign-in cookie).
 
 ## Run the app
 

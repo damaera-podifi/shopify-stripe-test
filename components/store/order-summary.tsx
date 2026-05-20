@@ -31,7 +31,12 @@ export function OrderSummary({ order }: { order: OrderDetails }) {
     <div className="mt-8 space-y-6 text-left">
       <div className="grid gap-3 sm:grid-cols-2">
         <StatusBadge label="Payment" value={order.financialStatus} />
-        <StatusBadge label="Fulfillment" value={order.fulfillmentStatus} />
+        <StatusBadge
+          label="Fulfillment"
+          value={
+            order.cancelledAt ? "Cancelled" : order.fulfillmentStatus
+          }
+        />
       </div>
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
