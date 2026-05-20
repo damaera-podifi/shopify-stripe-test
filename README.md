@@ -2,6 +2,8 @@
 
 Headless Shopify storefront with cart and on-site Stripe checkout. Paid orders are created in Shopify via the Admin API after payment succeeds.
 
+For system design, data flows, and directory layout, see [docs/architecture.md](docs/architecture.md).
+
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) 20+
