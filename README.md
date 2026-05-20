@@ -1,36 +1,90 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# shopify-try
 
-## Getting Started
+Headless Shopify storefront with cart and on-site Stripe checkout. Paid orders are created in Shopify via the Admin API after payment succeeds.
 
-First, run the development server:
+## Prerequisites
+
+- [Node.js](https://nodejs.org/) 20+
+- [pnpm](https://pnpm.io/) 10+
+- [Stripe CLI](https://stripe.com/docs/stripe-cli) (for local webhooks)
+- Shopify custom app tokens (Storefront + Admin) and Stripe test keys
+
+## Setup
+
+1. Install dependencies:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Copy environment variables and fill in your values:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+cp .env.example .env.local
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+See `.env.example` for required Shopify and Stripe variables. The Admin token needs scopes to create and complete draft orders (e.g. `write_draft_orders`, `read_products`).
 
-## Learn More
+## Run the app
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+pnpm dev
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Open [http://localhost:3000](http://localhost:3000). The store is at [http://localhost:3000/store](http://localhost:3000/store); checkout is at `/store/checkout`.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+To use a different port (e.g. `PORT=6000` in `.env.example`):
 
-## Deploy on Vercel
+```bash
+pnpm dev -- -p 6000
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Other commands:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+pnpm build   # production build
+pnpm start   # run production server
+pnpm lint
+```
+
+## Stripe webhooks (local)
+
+Webhook fulfillment runs when Stripe sends `payment_intent.succeeded`. For local development, forward events with the Stripe CLI in a **second terminal** while the app is running.
+
+1. Log in (once):
+
+```bash
+stripe login
+```
+
+2. Forward webhooks to the app (use the same port as `pnpm dev`):
+
+```bash
+stripe listen --forward-to localhost:3000/api/webhooks/stripe
+```
+
+If you started the app on port 6000:
+
+```bash
+stripe listen --forward-to localhost:6000/api/webhooks/stripe
+```
+
+3. Copy the webhook signing secret printed by the CLI (`whsec_...`) into `.env.local` as `STRIPE_WEBHOOK_SECRET`, then restart `pnpm dev` if it was already running.
+
+4. Optional: trigger a test event:
+
+```bash
+stripe trigger payment_intent.succeeded
+```
+
+### Test checkout
+
+Use Stripe test card `4242 4242 4242 4242`, any future expiry, and any CVC.
+
+Orders are also fulfilled from the success page and `/api/checkout/complete` when payment completes in the browser; the webhook is a backup for reliability.
+
+## Learn more
+
+- [Next.js Documentation](https://nextjs.org/docs)
+- [Shopify Storefront API](https://shopify.dev/docs/api/storefront)
+- [Stripe Payment Element](https://docs.stripe.com/payments/payment-element)
