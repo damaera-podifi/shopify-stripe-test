@@ -10,13 +10,14 @@ import { loadStripe } from "@stripe/stripe-js";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import type { CheckoutShippingInput } from "@/lib/checkout/types";
-import { formatPrice } from "@/lib/shopify/products";
+import { formatPrice } from "@/lib/shopify/format-price";
 
 type CheckoutFormProps = {
   publishableKey: string;
   currencyCode: string;
   totalAmount: string;
   totalQuantity: number;
+  initialShipping?: CheckoutShippingInput;
   disabled?: boolean;
 };
 
@@ -211,9 +212,28 @@ function PaymentStep({
     setPending(false);
   }
 
+  const billingName = `${shipping.firstName} ${shipping.lastName}`.trim();
+
   return (
     <form onSubmit={handlePay} className="space-y-6">
-      <PaymentElement />
+      <PaymentElement
+        options={{
+          defaultValues: {
+            billingDetails: {
+              name: billingName || undefined,
+              email: shipping.email || undefined,
+              address: {
+                line1: shipping.address1 || undefined,
+                line2: shipping.address2 || undefined,
+                city: shipping.city || undefined,
+                state: shipping.province || undefined,
+                postal_code: shipping.zip || undefined,
+                country: shipping.country || undefined,
+              },
+            },
+          },
+        }}
+      />
       {error ? (
         <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
       ) : null}
@@ -244,11 +264,24 @@ function PaymentStep({
   );
 }
 
+const emptyShipping = (): CheckoutShippingInput => ({
+  email: "",
+  firstName: "",
+  lastName: "",
+  address1: "",
+  address2: "",
+  city: "",
+  province: "",
+  zip: "",
+  country: "US",
+});
+
 export function CheckoutForm({
   publishableKey,
   currencyCode,
   totalAmount,
   totalQuantity,
+  initialShipping,
   disabled = false,
 }: CheckoutFormProps) {
   const stripePromise = useMemo(
@@ -256,17 +289,9 @@ export function CheckoutForm({
     [publishableKey],
   );
 
-  const [shipping, setShipping] = useState<CheckoutShippingInput>({
-    email: "",
-    firstName: "",
-    lastName: "",
-    address1: "",
-    address2: "",
-    city: "",
-    province: "",
-    zip: "",
-    country: "US",
-  });
+  const [shipping, setShipping] = useState<CheckoutShippingInput>(
+    initialShipping ?? emptyShipping(),
+  );
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingIntent, setLoadingIntent] = useState(false);

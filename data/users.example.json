@@ -4,14 +4,33 @@
       "id": "demo-vip",
       "email": "vip@example.com",
       "password": "password123",
-      "shopifyCustomerId": null,
+      "isMembership": true,
+      "checkoutProfile": {
+        "firstName": "VIP",
+        "lastName": "Customer",
+        "address1": "456 Oak Avenue",
+        "city": "Los Angeles",
+        "province": "CA",
+        "zip": "90012",
+        "country": "US"
+      },
       "createdAt": "2025-01-01T00:00:00.000Z"
     },
     {
       "id": "demo-user",
       "email": "user@example.com",
       "password": "password123",
-      "shopifyCustomerId": null,
+      "isMembership": false,
+      "checkoutProfile": {
+        "firstName": "Regular",
+        "lastName": "User",
+        "address1": "789 Pine Road",
+        "address2": "Apt 2B",
+        "city": "Austin",
+        "province": "TX",
+        "zip": "78701",
+        "country": "US"
+      },
       "createdAt": "2025-01-01T00:00:00.000Z"
     }
   ]

@@ -24,6 +24,15 @@ export async function syncCartBuyerIdentity(user: SessionUser): Promise<void> {
     }
   `;
 
+  const buyerIdentity: {
+    email: string;
+    customerAccessToken?: string;
+  } = { email: user.email };
+
+  if (user.shopifyStorefrontAccessToken) {
+    buyerIdentity.customerAccessToken = user.shopifyStorefrontAccessToken;
+  }
+
   const data = await storefrontMutation<{
     cartBuyerIdentityUpdate: {
       cart: { id: string } | null;
@@ -31,9 +40,7 @@ export async function syncCartBuyerIdentity(user: SessionUser): Promise<void> {
     };
   }>(mutation, {
     cartId,
-    buyerIdentity: {
-      email: user.email,
-    },
+    buyerIdentity,
   });
 
   const errors = data.cartBuyerIdentityUpdate.userErrors;

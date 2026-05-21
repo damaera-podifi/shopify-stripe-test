@@ -13,4 +13,9 @@ export type CheckoutShippingInput = {
 export type CheckoutLineItemMeta = {
   variantId: string;
   quantity: number;
+  /** Unit price charged (member price when applicable). */
+  unitPrice: string;
+  currencyCode: string;
+  /** Catalog unit price before member discount, when applicable. */
+  listUnitPrice?: string;
 };

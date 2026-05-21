@@ -35,10 +35,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid cart total" }, { status: 400 });
     }
 
-    const lineItems = cart.lines.map((line) => ({
-      variantId: line.merchandise.id,
-      quantity: line.quantity,
-    }));
+    const lineItems = cart.lines.map((line) => {
+      const compareAt = line.merchandise.compareAtPrice;
+      const listUnitPrice =
+        compareAt &&
+        Number(compareAt.amount) > Number(line.merchandise.price.amount)
+          ? compareAt.amount
+          : undefined;
+
+      return {
+        variantId: line.merchandise.id,
+        quantity: line.quantity,
+        unitPrice: line.merchandise.price.amount,
+        currencyCode: line.merchandise.price.currencyCode,
+        ...(listUnitPrice ? { listUnitPrice } : {}),
+      };
+    });
 
     const user = await getSessionUser();
     const metadata: Record<string, string> = {

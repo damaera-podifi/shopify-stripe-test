@@ -80,5 +80,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     id: user.id,
     email: user.email,
     shopifyCustomerId: user.shopifyCustomerId,
+    isMembership: Boolean(user.isMembership),
+    shopifyStorefrontAccessToken: user.shopifyStorefrontAccessToken ?? null,
   };
 }

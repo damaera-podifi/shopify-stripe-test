@@ -2,6 +2,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AddToCartForm } from "@/components/store/add-to-cart-form";
+import { getTrackedSegmentIds } from "@/lib/auth/segments";
+import { getSessionUser } from "@/lib/auth/session";
+import { getAdminMemberPricing } from "@/lib/shopify/admin-member-pricing";
+import { getBuyerContext } from "@/lib/shopify/buyer-context";
+import { effectiveAdminMemberPricing } from "@/lib/shopify/member-pricing";
 import {
   formatPrice,
   getProductByHandle,
@@ -12,9 +17,26 @@ type ProductPageProps = {
   params: Promise<{ handle: string }>;
 };
 
+async function loadProduct(handle: string) {
+  const [buyer, user] = await Promise.all([getBuyerContext(), getSessionUser()]);
+  const segmentPricing =
+    user && getTrackedSegmentIds().length > 0
+      ? await getAdminMemberPricing({
+          email: user.email,
+          shopifyCustomerId: user.shopifyCustomerId,
+        }).catch(() => null)
+      : null;
+  const adminMemberPricing = effectiveAdminMemberPricing(user, segmentPricing);
+
+  return getProductByHandle(handle, {
+    customerAccessToken: buyer?.customerAccessToken ?? null,
+    adminMemberPricing,
+  });
+}
+
 export async function generateMetadata({ params }: ProductPageProps) {
   const { handle } = await params;
-  const product = await getProductByHandle(handle);
+  const product = await loadProduct(handle);
 
   if (!product) {
     return { title: "Product not found | MLPA Health" };
@@ -28,13 +50,14 @@ export async function generateMetadata({ params }: ProductPageProps) {
 
 export default async function ProductPage({ params }: ProductPageProps) {
   const { handle } = await params;
-  const product = await getProductByHandle(handle);
+  const product = await loadProduct(handle);
 
   if (!product) {
     notFound();
   }
 
   const { amount, currencyCode } = product.priceRange.minVariantPrice;
+  const compareAt = product.compareAtPriceRange?.minVariantPrice;
   const galleryImages =
     product.images.length > 0
       ? product.images
@@ -104,9 +127,17 @@ export default async function ProductPage({ params }: ProductPageProps) {
               <p className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
                 {product.title}
               </p>
-              <p className="text-2xl font-medium text-emerald-700 dark:text-emerald-400">
-                {formatPrice(amount, currencyCode)}
-              </p>
+              <div className="flex flex-wrap items-baseline gap-3">
+                <p className="text-2xl font-medium text-emerald-700 dark:text-emerald-400">
+                  {formatPrice(amount, currencyCode)}
+                </p>
+                {compareAt &&
+                Number(compareAt.amount) > Number(amount) ? (
+                  <p className="text-lg text-zinc-500 line-through dark:text-zinc-400">
+                    {formatPrice(compareAt.amount, compareAt.currencyCode)}
+                  </p>
+                ) : null}
+              </div>
               {product.vendor ? (
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
                   {product.vendor}

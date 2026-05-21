@@ -1,10 +1,12 @@
 import Image from "next/image";
 import Link from "next/link";
 import { AddToCartButton } from "@/components/store/add-to-cart-button";
-import { formatPrice, type StoreProduct } from "@/lib/shopify/products";
+import { formatPrice } from "@/lib/shopify/format-price";
+import type { StoreProduct } from "@/lib/shopify/products";
 
 export function ProductCard({ product }: { product: StoreProduct }) {
   const { amount, currencyCode } = product.priceRange.minVariantPrice;
+  const compareAt = product.compareAtPriceRange?.minVariantPrice;
   const image = product.featuredImage;
   const defaultVariant = product.variants[0];
 
@@ -46,9 +48,17 @@ export function ProductCard({ product }: { product: StoreProduct }) {
             {product.description}
           </p>
         ) : null}
-        <p className="text-base font-medium text-emerald-700 dark:text-emerald-400">
-          {formatPrice(amount, currencyCode)}
-        </p>
+        <div className="flex flex-wrap items-baseline gap-2">
+          <p className="text-base font-medium text-emerald-700 dark:text-emerald-400">
+            {formatPrice(amount, currencyCode)}
+          </p>
+          {compareAt &&
+          Number(compareAt.amount) > Number(amount) ? (
+            <p className="text-sm text-zinc-500 line-through dark:text-zinc-400">
+              {formatPrice(compareAt.amount, compareAt.currencyCode)}
+            </p>
+          ) : null}
+        </div>
         {defaultVariant ? (
           <AddToCartButton
             merchandiseId={defaultVariant.id}

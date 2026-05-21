@@ -1,6 +1,12 @@
 import { Suspense } from "react";
+import { MemberPricingBanner } from "@/components/store/member-pricing-banner";
 import { ProductCard } from "@/components/store/product-card";
 import { StoreFilters } from "@/components/store/store-filters";
+import { getTrackedSegmentIds } from "@/lib/auth/segments";
+import { getSessionUser } from "@/lib/auth/session";
+import { getAdminMemberPricing } from "@/lib/shopify/admin-member-pricing";
+import { getBuyerContext } from "@/lib/shopify/buyer-context";
+import { effectiveAdminMemberPricing } from "@/lib/shopify/member-pricing";
 import {
   buildFilterFacets,
   filterStoreProducts,
@@ -29,13 +35,36 @@ function FiltersSkeleton() {
 export default async function StorePage({ searchParams }: StorePageProps) {
   const params = await searchParams;
   const active = parseActiveFilters(params);
+  const sessionUser = await getSessionUser();
+  const buyer = await getBuyerContext();
+  const adminConfigured = getTrackedSegmentIds().length > 0;
+  const pricingError = params.pricing_error;
+  const pricingLinked = params.pricing_linked === "1";
+
+  const segmentPricing =
+    sessionUser && adminConfigured
+      ? await getAdminMemberPricing({
+          email: sessionUser.email,
+          shopifyCustomerId: sessionUser.shopifyCustomerId,
+        }).catch(() => null)
+      : null;
+  const adminMemberPricing = effectiveAdminMemberPricing(
+    sessionUser,
+    segmentPricing,
+  );
 
   let allProducts: Awaited<ReturnType<typeof getStoreProducts>>["products"] = [];
+  let hasMemberPricing = false;
   let error: string | null = null;
 
   try {
-    const data = await getStoreProducts({ first: 50 });
+    const data = await getStoreProducts({
+      first: 50,
+      customerAccessToken: buyer?.customerAccessToken ?? null,
+      adminMemberPricing,
+    });
     allProducts = data.products;
+    hasMemberPricing = data.hasMemberPricing;
   } catch (e) {
     error = e instanceof Error ? e.message : "Failed to load products";
   }
@@ -52,7 +81,26 @@ export default async function StorePage({ searchParams }: StorePageProps) {
         </Suspense>
 
         <div className="min-w-0 flex-1">
+          {pricingLinked ? (
+            <p className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+              Member pricing linked. Product list shows your segment discounts.
+            </p>
+          ) : null}
+          {pricingError ? (
+            <p className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+              {decodeURIComponent(pricingError)}
+            </p>
+          ) : null}
+          {sessionUser ? (
+            <MemberPricingBanner
+              email={sessionUser.email}
+              hasMemberPricing={hasMemberPricing}
+              adminConfigured={adminConfigured}
+            />
+          ) : null}
           <p className="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
+            {filtersActive ? "Filtered results" : "All products"}
+            {hasMemberPricing ? " · Member pricing" : null}
             {filtersActive ? "Filtered results" : "All products"}
             {products.length > 0 ? ` · ${products.length} products` : null}
           </p>

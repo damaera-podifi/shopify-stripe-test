@@ -2,9 +2,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CheckoutForm } from "@/components/store/checkout-form";
 import { CheckoutLineItem } from "@/components/store/checkout-line-item";
+import { checkoutShippingFromUser } from "@/lib/auth/checkout-profile";
+import { getSessionUser } from "@/lib/auth/session";
+import { findUserById } from "@/lib/auth/users-db";
 import { getStripePublishableKey } from "@/lib/stripe/config";
 import { getCart } from "@/lib/shopify/cart";
-import { formatPrice } from "@/lib/shopify/products";
+import { formatPrice } from "@/lib/shopify/format-price";
 
 export const metadata = {
   title: "Checkout | MLPA Health",
@@ -12,6 +15,12 @@ export const metadata = {
 };
 
 export default async function CheckoutPage() {
+  const sessionUser = await getSessionUser();
+  const userRecord = sessionUser
+    ? await findUserById(sessionUser.id)
+    : undefined;
+  const initialShipping = checkoutShippingFromUser(userRecord);
+
   const cart = await getCart();
 
   if (!cart || cart.lines.length === 0) {
@@ -60,6 +69,7 @@ export default async function CheckoutPage() {
             currencyCode={cart.cost.totalAmount.currencyCode}
             totalAmount={cart.cost.totalAmount.amount}
             totalQuantity={cart.totalQuantity}
+            initialShipping={initialShipping}
             disabled={hasUnavailableItems}
           />
         </section>

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CartLineItem } from "@/components/store/cart-line-item";
 import { getCart } from "@/lib/shopify/cart";
-import { formatPrice } from "@/lib/shopify/products";
+import { formatPrice } from "@/lib/shopify/format-price";
 
 export const metadata = {
   title: "Cart | MLPA Health",

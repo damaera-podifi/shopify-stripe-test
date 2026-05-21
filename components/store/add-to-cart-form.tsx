@@ -5,7 +5,8 @@ import {
   addToCartAction,
   type CartActionState,
 } from "@/app/store/actions/cart";
-import { formatPrice, type StoreProductVariant } from "@/lib/shopify/products";
+import { formatPrice } from "@/lib/shopify/format-price";
+import type { StoreProductVariant } from "@/lib/shopify/products";
 
 const initialState: CartActionState = {};
 

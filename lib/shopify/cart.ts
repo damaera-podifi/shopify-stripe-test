@@ -1,10 +1,18 @@
+import { getTrackedSegmentIds } from "@/lib/auth/segments";
 import { getSessionUser } from "@/lib/auth/session";
+import { getAdminMemberPricing } from "./admin-member-pricing";
 import {
   clearCartIdCookie,
   getCartIdFromCookie,
   setCartIdCookie,
 } from "./cart-cookie";
 import { syncCartBuyerIdentity } from "./cart-buyer";
+import { injectBuyerInContext } from "./in-context";
+import {
+  applyMemberDiscountToCart,
+  effectiveAdminMemberPricing,
+  getMemberPricingContext,
+} from "./member-pricing";
 import { storefrontMutation, storefrontQuery } from "./storefront";
 
 export type CartMoney = {
@@ -20,6 +28,7 @@ export type CartLine = {
     title: string;
     availableForSale: boolean;
     price: CartMoney;
+    compareAtPrice?: CartMoney | null;
     image: { url: string; altText: string | null } | null;
     product: {
       title: string;
@@ -122,6 +131,30 @@ function normalizeCart(cart: CartPayload | null | undefined): Cart | null {
   };
 }
 
+async function resolveMemberPricingForCart() {
+  const user = await getSessionUser();
+  const segmentPricing =
+    user && getTrackedSegmentIds().length > 0
+      ? await getAdminMemberPricing({
+          email: user.email,
+          shopifyCustomerId: user.shopifyCustomerId,
+        }).catch(() => null)
+      : null;
+  const adminMemberPricing = effectiveAdminMemberPricing(user, segmentPricing);
+  return getMemberPricingContext(user, adminMemberPricing);
+}
+
+async function applyMemberPricingToCart(
+  cart: Cart | null,
+): Promise<Cart | null> {
+  if (!cart) return null;
+  const pricing = await resolveMemberPricingForCart();
+  if (!pricing.isMember || pricing.discountPercent === null) {
+    return cart;
+  }
+  return applyMemberDiscountToCart(cart, pricing);
+}
+
 async function syncBuyerIfLoggedIn() {
   const user = await getSessionUser();
   if (!user) return;
@@ -141,7 +174,8 @@ export async function getCart(): Promise<Cart | null> {
 
   await syncBuyerIfLoggedIn();
 
-  const query = `#graphql
+  const user = await getSessionUser();
+  let query = `#graphql
     query GetCart($cartId: ID!) {
       cart(id: $cartId) {
         ${CART_FIELDS}
@@ -149,11 +183,18 @@ export async function getCart(): Promise<Cart | null> {
     }
   `;
 
+  if (user?.shopifyStorefrontAccessToken) {
+    query = injectBuyerInContext(query, user.shopifyStorefrontAccessToken);
+  }
+
   try {
-    const data = await storefrontQuery<{ cart: CartPayload | null }>(query, {
-      cartId,
-    });
-    return normalizeCart(data.cart);
+    const data = await storefrontQuery<{ cart: CartPayload | null }>(
+      query,
+      { cartId },
+      { revalidate: false },
+    );
+    const cart = normalizeCart(data.cart);
+    return applyMemberPricingToCart(cart);
   } catch {
     await clearCartIdCookie();
     return null;
@@ -200,7 +241,7 @@ export async function createCart(
 
   const cart = await persistCart(data.cartCreate.cart);
   await syncBuyerIfLoggedIn();
-  return cart;
+  return (await applyMemberPricingToCart(cart)) ?? cart;
 }
 
 export async function addToCart(
@@ -241,7 +282,7 @@ export async function addToCart(
 
   const cart = await persistCart(data.cartLinesAdd.cart);
   await syncBuyerIfLoggedIn();
-  return cart;
+  return (await applyMemberPricingToCart(cart)) ?? cart;
 }
 
 export async function updateCartLine(
@@ -279,7 +320,7 @@ export async function updateCartLine(
 
   const cart = await persistCart(data.cartLinesUpdate.cart);
   await syncBuyerIfLoggedIn();
-  return cart;
+  return (await applyMemberPricingToCart(cart)) ?? cart;
 }
 
 export async function removeCartLine(lineId: string): Promise<Cart | null> {

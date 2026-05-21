@@ -1,3 +1,6 @@
+import type { AdminMemberPricing } from "./admin-member-pricing";
+import { applyPercentToMoney } from "./member-pricing";
+import { injectBuyerInContext } from "./in-context";
 import { storefrontQuery } from "./storefront";
 
 export type StoreProductImage = {
@@ -10,6 +13,10 @@ export type StoreProductVariant = {
   title: string;
   availableForSale: boolean;
   price: {
+    amount: string;
+    currencyCode: string;
+  };
+  compareAtPrice?: {
     amount: string;
     currencyCode: string;
   };
@@ -27,6 +34,13 @@ export type StoreProduct = {
   featuredImage: StoreProductImage | null;
   images: StoreProductImage[];
   priceRange: {
+    minVariantPrice: {
+      amount: string;
+      currencyCode: string;
+    };
+  };
+  /** Public list price when member pricing applies */
+  compareAtPriceRange?: {
     minVariantPrice: {
       amount: string;
       currencyCode: string;
@@ -191,46 +205,174 @@ function normalizeProductDetail(
   };
 }
 
+function applyAdminMemberDiscountToProducts(
+  products: ReturnType<typeof mapListProducts>,
+  pricing: AdminMemberPricing,
+) {
+  if (!pricing.isMember || pricing.discountPercent === null) {
+    return products;
+  }
+
+  const percent = pricing.discountPercent;
+
+  return products.map((product) => {
+    const memberMin = applyPercentToMoney(
+      product.priceRange.minVariantPrice,
+      percent,
+    );
+    const publicMin = product.priceRange.minVariantPrice;
+    const hasDiscount = Number(memberMin.amount) < Number(publicMin.amount);
+
+    if (!hasDiscount) return product;
+
+    return {
+      ...product,
+      priceRange: { minVariantPrice: memberMin },
+      compareAtPriceRange: { minVariantPrice: publicMin },
+      variants: product.variants.map((variant) => {
+        const memberPrice = applyPercentToMoney(variant.price, percent);
+        return {
+          ...variant,
+          price: memberPrice,
+          compareAtPrice: variant.price,
+        };
+      }),
+    };
+  });
+}
+
+function mapListProducts(data: ProductsQueryResult) {
+  return data.products.edges.map((edge) => {
+    const variant = edge.node.variants.edges[0]?.node;
+    const price = edge.node.priceRange.minVariantPrice;
+
+    return {
+      ...edge.node,
+      descriptionHtml: "",
+      images: edge.node.featuredImage ? [edge.node.featuredImage] : [],
+      variants: variant
+        ? [
+            {
+              id: variant.id,
+              title: "Default Title",
+              availableForSale: variant.availableForSale,
+              price,
+            },
+          ]
+        : [],
+    };
+  });
+}
+
+async function fetchStoreProductsQuery(
+  first: number,
+  productType: string | null,
+  customerAccessToken?: string,
+) {
+  const variables = {
+    first,
+    query: productTypeSearchQuery(productType),
+  };
+
+  if (!customerAccessToken) {
+    return storefrontQuery<ProductsQueryResult>(PRODUCTS_QUERY, variables);
+  }
+
+  const contextualQuery = injectBuyerInContext(
+    PRODUCTS_QUERY,
+    customerAccessToken,
+  );
+  return storefrontQuery<ProductsQueryResult>(contextualQuery, variables, {
+    revalidate: false,
+  });
+}
+
 export async function getStoreProducts(options?: {
   first?: number;
   productType?: string | null;
+  customerAccessToken?: string | null;
+  adminMemberPricing?: AdminMemberPricing | null;
 }) {
   const first = options?.first ?? 50;
   const productType = options?.productType ?? null;
+  const token = options?.customerAccessToken ?? null;
+  const adminPricing = options?.adminMemberPricing ?? null;
 
-  const data = await storefrontQuery<ProductsQueryResult>(PRODUCTS_QUERY, {
-    first,
-    query: productTypeSearchQuery(productType),
+  const publicData = await fetchStoreProductsQuery(first, productType);
+  const publicProducts = mapListProducts(publicData);
+
+  if (!token) {
+    const adminProducts =
+      adminPricing?.isMember && adminPricing.discountPercent !== null
+        ? applyAdminMemberDiscountToProducts(publicProducts, adminPricing)
+        : publicProducts;
+
+    return {
+      shopName: publicData.shop.name,
+      shopUrl: publicData.shop.primaryDomain.url,
+      products: adminProducts,
+      activeProductType: productType,
+      hasMemberPricing: Boolean(adminPricing?.isMember),
+      pricingSource: adminPricing?.isMember ? ("admin" as const) : null,
+    };
+  }
+
+  const memberData = await fetchStoreProductsQuery(first, productType, token);
+  const memberById = new Map(
+    mapListProducts(memberData).map((p) => [p.id, p] as const),
+  );
+
+  const products = publicProducts.map((product) => {
+    const member = memberById.get(product.id);
+    if (!member) return product;
+
+    const publicAmount = Number(product.priceRange.minVariantPrice.amount);
+    const memberAmount = Number(member.priceRange.minVariantPrice.amount);
+    const hasDiscount =
+      Number.isFinite(publicAmount) &&
+      Number.isFinite(memberAmount) &&
+      memberAmount < publicAmount;
+
+    if (!hasDiscount) {
+      return { ...member };
+    }
+
+    return {
+      ...member,
+      compareAtPriceRange: product.priceRange,
+      variants: member.variants.map((v, i) => {
+        const publicVariant = product.variants[i];
+        if (!publicVariant) return v;
+        const pub = Number(publicVariant.price.amount);
+        const mem = Number(v.price.amount);
+        if (Number.isFinite(pub) && Number.isFinite(mem) && mem < pub) {
+          return {
+            ...v,
+            compareAtPrice: publicVariant.price,
+          };
+        }
+        return v;
+      }),
+    };
   });
 
   return {
-    shopName: data.shop.name,
-    shopUrl: data.shop.primaryDomain.url,
-    products: data.products.edges.map((edge) => {
-      const variant = edge.node.variants.edges[0]?.node;
-      const price = edge.node.priceRange.minVariantPrice;
-
-      return {
-        ...edge.node,
-        descriptionHtml: "",
-        images: edge.node.featuredImage ? [edge.node.featuredImage] : [],
-        variants: variant
-          ? [
-              {
-                id: variant.id,
-                title: "Default Title",
-                availableForSale: variant.availableForSale,
-                price,
-              },
-            ]
-          : [],
-      };
-    }),
+    shopName: publicData.shop.name,
+    shopUrl: publicData.shop.primaryDomain.url,
+    products,
     activeProductType: productType,
+    hasMemberPricing: true,
+    pricingSource: "storefront" as const,
   };
 }
 
-export async function getProductByHandle(handle: string) {
+export async function getProductByHandle(
+  handle: string,
+  options?: {
+    customerAccessToken?: string | null;
+    adminMemberPricing?: AdminMemberPricing | null;
+  },
+) {
   const query = `#graphql
     query StoreProduct($handle: String!) {
       product(handle: $handle) {
@@ -239,16 +381,75 @@ export async function getProductByHandle(handle: string) {
     }
   `;
 
-  const data = await storefrontQuery<ProductQueryResult>(query, { handle });
-  return normalizeProductDetail(data.product);
+  const token = options?.customerAccessToken ?? null;
+  const adminPricing = options?.adminMemberPricing ?? null;
+  const publicData = await storefrontQuery<ProductQueryResult>(query, {
+    handle,
+  });
+  const publicProduct = normalizeProductDetail(publicData.product);
+  if (!publicProduct) return null;
+
+  if (!token && adminPricing?.isMember && adminPricing.discountPercent !== null) {
+    const variants = publicProduct.variants.map((variant) => {
+      const memberPrice = applyPercentToMoney(
+        variant.price,
+        adminPricing.discountPercent!,
+      );
+      return {
+        ...variant,
+        price: memberPrice,
+        compareAtPrice: variant.price,
+      };
+    });
+    const memberMin = applyPercentToMoney(
+      publicProduct.priceRange.minVariantPrice,
+      adminPricing.discountPercent,
+    );
+    return {
+      ...publicProduct,
+      priceRange: { minVariantPrice: memberMin },
+      compareAtPriceRange: publicProduct.priceRange,
+      variants,
+    };
+  }
+
+  if (!token) return publicProduct;
+
+  const memberQuery = injectBuyerInContext(query, token);
+  const memberData = await storefrontQuery<ProductQueryResult>(memberQuery, {
+    handle,
+  }, { revalidate: false });
+  const memberProduct = normalizeProductDetail(memberData.product);
+  if (!memberProduct) return publicProduct;
+
+  const variants = memberProduct.variants.map((variant, index) => {
+    const publicVariant = publicProduct.variants[index];
+    if (!publicVariant) return variant;
+    const pub = Number(publicVariant.price.amount);
+    const mem = Number(variant.price.amount);
+    if (Number.isFinite(pub) && Number.isFinite(mem) && mem < pub) {
+      return { ...variant, compareAtPrice: publicVariant.price };
+    }
+    return variant;
+  });
+
+  const publicMin = Number(publicProduct.priceRange.minVariantPrice.amount);
+  const memberMin = Number(memberProduct.priceRange.minVariantPrice.amount);
+  const compareAtPriceRange =
+    Number.isFinite(publicMin) &&
+    Number.isFinite(memberMin) &&
+    memberMin < publicMin
+      ? publicProduct.priceRange
+      : undefined;
+
+  return {
+    ...memberProduct,
+    compareAtPriceRange,
+    variants,
+  };
 }
 
-export function formatPrice(amount: string, currencyCode: string) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: currencyCode,
-  }).format(Number(amount));
-}
+export { formatPrice } from "./format-price";
 
 export function productTypeToFilterParam(productType: string | null) {
   if (!productType) return undefined;

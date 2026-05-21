@@ -53,8 +53,10 @@ async function storefrontRequest<T>(
 export async function storefrontQuery<T>(
   query: string,
   variables?: Record<string, unknown>,
+  options?: { revalidate?: number | false },
 ): Promise<T> {
-  return storefrontRequest<T>(query, variables, { revalidate: 60 });
+  const revalidate = options?.revalidate ?? 60;
+  return storefrontRequest<T>(query, variables, { revalidate });
 }
 
 export async function storefrontMutation<T>(

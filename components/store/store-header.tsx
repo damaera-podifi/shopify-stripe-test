@@ -10,6 +10,7 @@ type StoreHeaderProps = {
   cartCount?: number;
   userEmail?: string | null;
   hasSegmentPricing?: boolean;
+  showPricingLink?: boolean;
 };
 
 export function StoreHeader({
@@ -21,6 +22,7 @@ export function StoreHeader({
   cartCount = 0,
   userEmail = null,
   hasSegmentPricing = false,
+  showPricingLink = false,
 }: StoreHeaderProps) {
   return (
     <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
@@ -42,8 +44,15 @@ export function StoreHeader({
               {userEmail}
               {hasSegmentPricing ? (
                 <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                  Segment member
+                  Member pricing
                 </span>
+              ) : showPricingLink ? (
+                <Link
+                  href="/api/auth/shopify/start"
+                  className="ml-2 text-xs font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-400"
+                >
+                  Exact Shopify pricing
+                </Link>
               ) : null}
             </span>
           ) : (

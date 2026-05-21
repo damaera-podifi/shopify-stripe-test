@@ -58,6 +58,7 @@ export async function createUser(input: {
     email,
     password: input.password,
     shopifyCustomerId: input.shopifyCustomerId ?? null,
+    isMembership: false,
     createdAt: new Date().toISOString(),
   };
 
@@ -77,6 +78,39 @@ export async function updateUserShopifyCustomerId(
     throw new Error("User not found");
   }
   db.users[index] = { ...db.users[index], shopifyCustomerId };
+  await writeDb(db);
+  return db.users[index];
+}
+
+export async function updateUserMembership(
+  userId: string,
+  isMembership: boolean,
+): Promise<UserRecord> {
+  const db = await readDb();
+  const index = db.users.findIndex((u) => u.id === userId);
+  if (index === -1) {
+    throw new Error("User not found");
+  }
+  db.users[index] = { ...db.users[index], isMembership };
+  await writeDb(db);
+  return db.users[index];
+}
+
+export async function updateUserStorefrontAccessToken(
+  userId: string,
+  accessToken: string,
+  expiresAt?: string | null,
+): Promise<UserRecord> {
+  const db = await readDb();
+  const index = db.users.findIndex((u) => u.id === userId);
+  if (index === -1) {
+    throw new Error("User not found");
+  }
+  db.users[index] = {
+    ...db.users[index],
+    shopifyStorefrontAccessToken: accessToken,
+    shopifyStorefrontTokenExpiresAt: expiresAt ?? null,
+  };
   await writeDb(db);
   return db.users[index];
 }

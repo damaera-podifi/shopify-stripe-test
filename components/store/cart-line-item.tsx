@@ -5,7 +5,7 @@ import {
   updateCartLineAction,
 } from "@/app/store/actions/cart";
 import type { CartLine } from "@/lib/shopify/cart";
-import { formatPrice } from "@/lib/shopify/products";
+import { formatPrice } from "@/lib/shopify/format-price";
 
 export function CartLineItem({ line }: { line: CartLine }) {
   const { merchandise } = line;
@@ -46,12 +46,24 @@ export function CartLineItem({ line }: { line: CartLine }) {
               {merchandise.title}
             </p>
           ) : null}
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            {formatPrice(
-              merchandise.price.amount,
-              merchandise.price.currencyCode,
-            )}{" "}
-            each
+          <p className="flex flex-wrap items-baseline gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+            <span>
+              {formatPrice(
+                merchandise.price.amount,
+                merchandise.price.currencyCode,
+              )}{" "}
+              each
+            </span>
+            {merchandise.compareAtPrice &&
+            Number(merchandise.compareAtPrice.amount) >
+              Number(merchandise.price.amount) ? (
+              <span className="text-zinc-500 line-through dark:text-zinc-500">
+                {formatPrice(
+                  merchandise.compareAtPrice.amount,
+                  merchandise.compareAtPrice.currencyCode,
+                )}
+              </span>
+            ) : null}
           </p>
         </div>
 

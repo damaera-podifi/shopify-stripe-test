@@ -1,5 +1,6 @@
 import type Stripe from "stripe";
 import { logCheckout, logCheckoutError } from "./logger";
+import { toDraftOrderLineItems } from "./draft-order-lines";
 import type { CheckoutLineItemMeta, CheckoutShippingInput } from "./types";
 import { clearCartIdCookie, getCartIdFromCookie } from "@/lib/shopify/cart-cookie";
 import { adminGraphql } from "@/lib/shopify/admin";
@@ -82,10 +83,7 @@ async function createAndCompleteDraftOrder(
         email: shipping.email,
         customerId: shopifyCustomerId,
         note: `Paid via Stripe PaymentIntent ${paymentIntentId}`,
-        lineItems: lineItems.map((item) => ({
-          variantId: item.variantId,
-          quantity: item.quantity,
-        })),
+        lineItems: toDraftOrderLineItems(lineItems),
         shippingAddress: mailingAddress(shipping),
         billingAddress: mailingAddress(shipping),
       },
