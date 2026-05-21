@@ -1,11 +1,16 @@
 import { timingSafeEqual } from "crypto";
+import type { CheckoutShippingInput } from "@/lib/checkout/types";
 import { readJsonFile } from "./json-db";
 import { createUserIdFromEmail, normalizeAuthEmail } from "./user-id";
+
+/** Saved address used to prefill checkout when the user is signed in. */
+export type StoreUserShipping = Omit<CheckoutShippingInput, "email">;
 
 export type StoreUserRecord = {
   email: string;
   password: string;
   is_membership_active: boolean;
+  shipping?: StoreUserShipping;
 };
 
 type UsersFile = {
@@ -44,5 +49,30 @@ export function userRecordToSessionFields(user: StoreUserRecord) {
     email,
     userId: createUserIdFromEmail(email),
     isMembershipActive: user.is_membership_active,
+  };
+}
+
+export async function findUserByEmail(
+  email: string,
+): Promise<StoreUserRecord | null> {
+  const normalizedEmail = normalizeAuthEmail(email);
+  const { users } = await readJsonFile<UsersFile>("users.json");
+  return (
+    users.find(
+      (record) => normalizeAuthEmail(record.email) === normalizedEmail,
+    ) ?? null
+  );
+}
+
+export function userRecordToCheckoutShipping(
+  user: StoreUserRecord,
+): CheckoutShippingInput | null {
+  if (!user.shipping) {
+    return null;
+  }
+
+  return {
+    email: normalizeAuthEmail(user.email),
+    ...user.shipping,
   };
 }

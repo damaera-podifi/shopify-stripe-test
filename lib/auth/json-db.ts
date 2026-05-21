@@ -30,6 +30,28 @@ export async function readJsonFile<T>(filename: string): Promise<T> {
   }
 }
 
+export async function readJsonFileOrDefault<T>(
+  filename: string,
+  defaultValue: T,
+): Promise<T> {
+  await ensureDataDir();
+  const filePath = dataFilePath(filename);
+  try {
+    const raw = await readFile(filePath, "utf8");
+    return JSON.parse(raw) as T;
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return defaultValue;
+    }
+    throw error;
+  }
+}
+
 export async function writeJsonFile<T>(
   filename: string,
   data: T,

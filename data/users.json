@@ -3,12 +3,46 @@
     {
       "email": "muhammad.syafrizal@podifi.ai",
       "password": "demo123",
-      "is_membership_active": true
+      "is_membership_active": true,
+      "shipping": {
+        "firstName": "Muhammad",
+        "lastName": "Syafrizal",
+        "address1": "742 Evergreen Terrace",
+        "address2": "Apt 4B",
+        "city": "Springfield",
+        "province": "IL",
+        "zip": "62704",
+        "country": "US"
+      }
     },
     {
       "email": "muhammad.syafrizal+1@podifi.ai",
       "password": "demo123",
-      "is_membership_active": false
+      "is_membership_active": false,
+      "shipping": {
+        "firstName": "Muhammad",
+        "lastName": "Syafrizal",
+        "address1": "100 Queen Street West",
+        "city": "Toronto",
+        "province": "ON",
+        "zip": "M5H 2N2",
+        "country": "CA"
+      }
+    },
+    {
+      "email": "lutfi.damaera@podifi.ai",
+      "password": "123qweasd",
+      "is_membership_active": true,
+      "shipping": {
+        "firstName": "Lutfi",
+        "lastName": "Damaera",
+        "address1": "1 Market Street",
+        "address2": "Suite 300",
+        "city": "San Francisco",
+        "province": "CA",
+        "zip": "94105",
+        "country": "US"
+      }
     }
   ]
 }

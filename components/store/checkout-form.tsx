@@ -19,7 +19,7 @@ type CheckoutFormProps = {
   totalAmount: string;
   totalQuantity: number;
   disabled?: boolean;
-  defaultEmail?: string;
+  defaultShipping?: Partial<CheckoutShippingInput>;
 };
 
 const inputClassName =
@@ -249,30 +249,35 @@ function PaymentStep({
   );
 }
 
+const emptyShipping: CheckoutShippingInput = {
+  email: "",
+  firstName: "",
+  lastName: "",
+  address1: "",
+  address2: "",
+  city: "",
+  province: "",
+  zip: "",
+  country: "US",
+};
+
 export function CheckoutForm({
   publishableKey,
   currencyCode,
   totalAmount,
   totalQuantity,
   disabled = false,
-  defaultEmail = "",
+  defaultShipping,
 }: CheckoutFormProps) {
   const stripePromise = useMemo(
     () => loadStripe(publishableKey),
     [publishableKey],
   );
 
-  const [shipping, setShipping] = useState<CheckoutShippingInput>({
-    email: defaultEmail,
-    firstName: "",
-    lastName: "",
-    address1: "",
-    address2: "",
-    city: "",
-    province: "",
-    zip: "",
-    country: "US",
-  });
+  const [shipping, setShipping] = useState<CheckoutShippingInput>(() => ({
+    ...emptyShipping,
+    ...defaultShipping,
+  }));
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingIntent, setLoadingIntent] = useState(false);
@@ -325,12 +330,32 @@ export function CheckoutForm({
     );
   }
 
+  const billingName = `${shipping.firstName} ${shipping.lastName}`.trim();
+
   return (
     <Elements
       stripe={stripePromise}
       options={{
         clientSecret,
         appearance: { theme: "stripe" },
+        ...(billingName
+          ? {
+              defaultValues: {
+                billingDetails: {
+                  name: billingName,
+                  email: shipping.email,
+                  address: {
+                    line1: shipping.address1,
+                    line2: shipping.address2 || undefined,
+                    city: shipping.city,
+                    state: shipping.province,
+                    postal_code: shipping.zip,
+                    country: shipping.country,
+                  },
+                },
+              },
+            }
+          : {}),
       }}
     >
       <h2 className="mb-4 text-lg font-semibold text-zinc-900 dark:text-zinc-50">

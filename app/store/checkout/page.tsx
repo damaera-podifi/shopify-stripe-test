@@ -4,6 +4,10 @@ import { CheckoutForm } from "@/components/store/checkout-form";
 import { CheckoutLineItem } from "@/components/store/checkout-line-item";
 import { CartTotalsSummary } from "@/components/store/cart-totals-summary";
 import { getStoreSession } from "@/lib/auth/session";
+import {
+  findUserByEmail,
+  userRecordToCheckoutShipping,
+} from "@/lib/auth/users-db";
 import { getStripePublishableKey } from "@/lib/stripe/config";
 import { getCart } from "@/lib/shopify/cart";
 
@@ -14,6 +18,8 @@ export const metadata = {
 
 export default async function CheckoutPage() {
   const [cart, session] = await Promise.all([getCart(), getStoreSession()]);
+  const user = session ? await findUserByEmail(session.email) : null;
+  const defaultShipping = user ? userRecordToCheckoutShipping(user) : null;
 
   if (!cart || cart.lines.length === 0) {
     redirect("/store/cart");
@@ -72,7 +78,7 @@ export default async function CheckoutPage() {
             totalAmount={cart.cost.totalAmount.amount}
             totalQuantity={cart.totalQuantity}
             disabled={hasUnavailableItems}
-            defaultEmail={session?.email ?? ""}
+            defaultShipping={defaultShipping ?? undefined}
           />
         </section>
 

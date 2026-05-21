@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { readJsonFile, writeJsonFile } from "./json-db";
+import { readJsonFileOrDefault, writeJsonFile } from "./json-db";
 
 const SESSION_MAX_AGE_MS = 60 * 60 * 24 * 30 * 1000;
 
@@ -21,11 +21,13 @@ type AuthStateFile = {
 };
 
 async function readSessionsFile(): Promise<SessionsFile> {
-  return readJsonFile<SessionsFile>("sessions.json");
+  return readJsonFileOrDefault<SessionsFile>("sessions.json", { sessions: {} });
 }
 
 async function readAuthStateFile(): Promise<AuthStateFile> {
-  return readJsonFile<AuthStateFile>("auth-state.json");
+  return readJsonFileOrDefault<AuthStateFile>("auth-state.json", {
+    activeSessionId: null,
+  });
 }
 
 function pruneExpiredSessions(sessions: SessionsFile["sessions"]) {
