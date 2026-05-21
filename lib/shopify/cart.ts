@@ -1,8 +1,10 @@
+import { getSessionUser } from "@/lib/auth/session";
 import {
   clearCartIdCookie,
   getCartIdFromCookie,
   setCartIdCookie,
 } from "./cart-cookie";
+import { syncCartBuyerIdentity } from "./cart-buyer";
 import { storefrontMutation, storefrontQuery } from "./storefront";
 
 export type CartMoney = {
@@ -26,6 +28,11 @@ export type CartLine = {
   };
 };
 
+export type CartDiscountAllocation = {
+  discountedAmount: CartMoney;
+  title?: string;
+};
+
 export type Cart = {
   id: string;
   checkoutUrl: string;
@@ -34,6 +41,7 @@ export type Cart = {
     subtotalAmount: CartMoney;
     totalAmount: CartMoney;
   };
+  discountAllocations: CartDiscountAllocation[];
   lines: CartLine[];
 };
 
@@ -49,6 +57,18 @@ const CART_FIELDS = `
     totalAmount {
       amount
       currencyCode
+    }
+  }
+  discountAllocations {
+    discountedAmount {
+      amount
+      currencyCode
+    }
+    ... on CartAutomaticDiscountAllocation {
+      title
+    }
+    ... on CartCodeDiscountAllocation {
+      code
     }
   }
   lines(first: 50) {
@@ -85,6 +105,7 @@ type CartPayload = {
   checkoutUrl: string;
   totalQuantity: number;
   cost: Cart["cost"];
+  discountAllocations?: CartDiscountAllocation[];
   lines: { edges: Array<{ node: CartLine }> };
 };
 
@@ -96,8 +117,15 @@ function normalizeCart(cart: CartPayload | null | undefined): Cart | null {
     checkoutUrl: cart.checkoutUrl,
     totalQuantity: cart.totalQuantity,
     cost: cart.cost,
+    discountAllocations: cart.discountAllocations ?? [],
     lines: cart.lines.edges.map((edge) => edge.node),
   };
+}
+
+async function syncBuyerIfLoggedIn() {
+  const user = await getSessionUser();
+  if (!user) return;
+  await syncCartBuyerIdentity(user).catch(() => {});
 }
 
 function getUserErrors(
@@ -110,6 +138,8 @@ function getUserErrors(
 export async function getCart(): Promise<Cart | null> {
   const cartId = await getCartIdFromCookie();
   if (!cartId) return null;
+
+  await syncBuyerIfLoggedIn();
 
   const query = `#graphql
     query GetCart($cartId: ID!) {
@@ -168,7 +198,9 @@ export async function createCart(
   const error = getUserErrors(data.cartCreate.userErrors);
   if (error) throw new Error(error);
 
-  return persistCart(data.cartCreate.cart);
+  const cart = await persistCart(data.cartCreate.cart);
+  await syncBuyerIfLoggedIn();
+  return cart;
 }
 
 export async function addToCart(
@@ -207,7 +239,9 @@ export async function addToCart(
   const error = getUserErrors(data.cartLinesAdd.userErrors);
   if (error) throw new Error(error);
 
-  return persistCart(data.cartLinesAdd.cart);
+  const cart = await persistCart(data.cartLinesAdd.cart);
+  await syncBuyerIfLoggedIn();
+  return cart;
 }
 
 export async function updateCartLine(
@@ -243,7 +277,9 @@ export async function updateCartLine(
   const error = getUserErrors(data.cartLinesUpdate.userErrors);
   if (error) throw new Error(error);
 
-  return persistCart(data.cartLinesUpdate.cart);
+  const cart = await persistCart(data.cartLinesUpdate.cart);
+  await syncBuyerIfLoggedIn();
+  return cart;
 }
 
 export async function removeCartLine(lineId: string): Promise<Cart | null> {

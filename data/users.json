@@ -1,0 +1,18 @@
+{
+  "users": [
+    {
+      "id": "demo-vip",
+      "email": "vip@example.com",
+      "password": "password123",
+      "shopifyCustomerId": null,
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "demo-user",
+      "email": "demo@example.com",
+      "password": "123qweasd???",
+      "shopifyCustomerId": "gid://shopify/Customer/9592599740734",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    }
+  ]
+}

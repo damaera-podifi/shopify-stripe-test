@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LogoutButton } from "./logout-button";
 
 type StoreHeaderProps = {
   shopName: string;
@@ -7,6 +8,8 @@ type StoreHeaderProps = {
   backHref?: string;
   backLabel?: string;
   cartCount?: number;
+  userEmail?: string | null;
+  hasSegmentPricing?: boolean;
 };
 
 export function StoreHeader({
@@ -16,6 +19,8 @@ export function StoreHeader({
   backHref = "/store",
   backLabel = "All products",
   cartCount = 0,
+  userEmail = null,
+  hasSegmentPricing = false,
 }: StoreHeaderProps) {
   return (
     <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
@@ -32,6 +37,23 @@ export function StoreHeader({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm">
+          {userEmail ? (
+            <span className="text-zinc-600 dark:text-zinc-400">
+              {userEmail}
+              {hasSegmentPricing ? (
+                <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                  Segment member
+                </span>
+              ) : null}
+            </span>
+          ) : (
+            <Link
+              href="/store/login"
+              className="rounded-full border border-zinc-300 px-4 py-2 text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            >
+              Sign in
+            </Link>
+          )}
           <Link
             href="/store/cart"
             className="relative rounded-full border border-zinc-300 px-4 py-2 text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
@@ -43,6 +65,7 @@ export function StoreHeader({
               </span>
             ) : null}
           </Link>
+          {userEmail ? <LogoutButton /> : null}
           <Link
             href={backHref}
             className="rounded-full border border-zinc-300 px-4 py-2 text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"

@@ -45,6 +45,22 @@ export default async function CartPage() {
                 )}
               </span>
             </div>
+            {cart.discountAllocations.length > 0 ? (
+              <ul className="mt-3 space-y-1 text-sm text-emerald-700 dark:text-emerald-400">
+                {cart.discountAllocations.map((allocation, index) => (
+                  <li key={index} className="flex justify-between gap-4">
+                    <span>{allocation.title ?? "Discount"}</span>
+                    <span>
+                      −
+                      {formatPrice(
+                        allocation.discountedAmount.amount,
+                        allocation.discountedAmount.currencyCode,
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             <div className="mt-2 flex items-center justify-between text-lg font-semibold text-zinc-900 dark:text-zinc-50">
               <span>Total ({cart.totalQuantity} items)</span>
               <span className="text-emerald-700 dark:text-emerald-400">

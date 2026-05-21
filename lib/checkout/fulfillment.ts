@@ -47,6 +47,7 @@ async function createAndCompleteDraftOrder(
   shipping: CheckoutShippingInput,
   lineItems: CheckoutLineItemMeta[],
   paymentIntentId: string,
+  shopifyCustomerId?: string,
 ): Promise<FulfillmentResult> {
   logCheckout("draft_order_create_start", {
     paymentIntentId,
@@ -79,6 +80,7 @@ async function createAndCompleteDraftOrder(
     {
       input: {
         email: shipping.email,
+        customerId: shopifyCustomerId,
         note: `Paid via Stripe PaymentIntent ${paymentIntentId}`,
         lineItems: lineItems.map((item) => ({
           variantId: item.variantId,
@@ -201,10 +203,13 @@ export async function fulfillStripePayment(
 
     const lineItems = parseLineItems(paymentIntent.metadata);
     const shipping = parseShipping(paymentIntent.metadata);
+    const shopifyCustomerId =
+      paymentIntent.metadata.shopify_customer_id || undefined;
     const result = await createAndCompleteDraftOrder(
       shipping,
       lineItems,
       paymentIntentId,
+      shopifyCustomerId,
     );
 
     await stripe.paymentIntents.update(paymentIntentId, {

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/auth/session";
 import { parseShippingFromBody } from "@/lib/checkout/validate-shipping";
 import { getCart } from "@/lib/shopify/cart";
 import { getStripe } from "@/lib/stripe/server";
@@ -39,17 +40,23 @@ export async function POST(request: Request) {
       quantity: line.quantity,
     }));
 
+    const user = await getSessionUser();
+    const metadata: Record<string, string> = {
+      cart_id: cart.id,
+      line_items: JSON.stringify(lineItems),
+      shipping: JSON.stringify(shippingResult),
+    };
+    if (user?.shopifyCustomerId) {
+      metadata.shopify_customer_id = user.shopifyCustomerId;
+    }
+
     const stripe = getStripe();
     const paymentIntent = await stripe.paymentIntents.create({
       amount,
       currency: cart.cost.totalAmount.currencyCode.toLowerCase(),
       automatic_payment_methods: { enabled: true },
       receipt_email: shippingResult.email,
-      metadata: {
-        cart_id: cart.id,
-        line_items: JSON.stringify(lineItems),
-        shipping: JSON.stringify(shippingResult),
-      },
+      metadata,
     });
 
     if (!paymentIntent.client_secret) {
