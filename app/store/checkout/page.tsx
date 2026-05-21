@@ -2,10 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CheckoutForm } from "@/components/store/checkout-form";
 import { CheckoutLineItem } from "@/components/store/checkout-line-item";
+import { CartTotalsSummary } from "@/components/store/cart-totals-summary";
 import { getStoreSession } from "@/lib/auth/session";
 import { getStripePublishableKey } from "@/lib/stripe/config";
 import { getCart } from "@/lib/shopify/cart";
-import { formatPrice } from "@/lib/shopify/products";
 
 export const metadata = {
   title: "Checkout | MLPA Health",
@@ -85,14 +85,8 @@ export default async function CheckoutPage() {
               <CheckoutLineItem key={line.id} line={line} />
             ))}
           </ul>
-          <div className="mt-4 flex items-center justify-between border-t border-zinc-200 pt-4 text-lg font-semibold dark:border-zinc-800">
-            <span>Total ({cart.totalQuantity} items)</span>
-            <span className="text-emerald-700 dark:text-emerald-400">
-              {formatPrice(
-                cart.cost.totalAmount.amount,
-                cart.cost.totalAmount.currencyCode,
-              )}
-            </span>
+          <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+            <CartTotalsSummary cart={cart} />
           </div>
           <Link
             href="/store/cart"

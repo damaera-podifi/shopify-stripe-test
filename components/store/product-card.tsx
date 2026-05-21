@@ -1,9 +1,19 @@
 import Image from "next/image";
 import Link from "next/link";
 import { AddToCartButton } from "@/components/store/add-to-cart-button";
+import { MemberPrice, MemberPriceBadge } from "@/components/store/member-price";
 import { formatPrice, type StoreProduct } from "@/lib/shopify/products";
+import type { VariantMembershipPrice } from "@/lib/shopify/member-pricing";
 
-export function ProductCard({ product }: { product: StoreProduct }) {
+export function ProductCard({
+  product,
+  memberPrice,
+  isMember,
+}: {
+  product: StoreProduct;
+  memberPrice?: VariantMembershipPrice | null;
+  isMember?: boolean;
+}) {
   const { amount, currencyCode } = product.priceRange.minVariantPrice;
   const image = product.featuredImage;
   const defaultVariant = product.variants[0];
@@ -15,6 +25,11 @@ export function ProductCard({ product }: { product: StoreProduct }) {
         className="group block"
       >
         <div className="relative aspect-[4/3] bg-zinc-100 dark:bg-zinc-900">
+          {isMember && memberPrice ? (
+            <div className="absolute left-3 top-3 z-10">
+              <MemberPriceBadge eligible={memberPrice.hasDiscount} />
+            </div>
+          ) : null}
           {image ? (
             <Image
               src={image.url}
@@ -46,9 +61,13 @@ export function ProductCard({ product }: { product: StoreProduct }) {
             {product.description}
           </p>
         ) : null}
-        <p className="text-base font-medium text-emerald-700 dark:text-emerald-400">
-          {formatPrice(amount, currencyCode)}
-        </p>
+        <div className="text-base font-medium text-emerald-700 dark:text-emerald-400">
+          {memberPrice ? (
+            <MemberPrice price={memberPrice} showEligibility={Boolean(isMember)} />
+          ) : (
+            formatPrice(amount, currencyCode)
+          )}
+        </div>
         {defaultVariant ? (
           <AddToCartButton
             merchandiseId={defaultVariant.id}

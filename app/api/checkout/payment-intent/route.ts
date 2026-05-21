@@ -45,6 +45,22 @@ export async function POST(request: Request) {
     const appUserId =
       session?.userId ?? createUserIdFromEmail(shippingResult.email);
 
+    let shopifyCustomerId = "";
+    if (session?.isMembershipActive) {
+      try {
+        const { syncMembershipCustomerToShopify } = await import(
+          "@/lib/shopify/membership"
+        );
+        const sync = await syncMembershipCustomerToShopify(
+          session.email,
+          true,
+        );
+        shopifyCustomerId = sync.shopifyCustomerId;
+      } catch {
+        // Checkout can proceed; fulfillment may fall back to email-only customer lookup.
+      }
+    }
+
     const stripe = getStripe();
     const paymentIntent = await stripe.paymentIntents.create({
       amount,
@@ -56,6 +72,9 @@ export async function POST(request: Request) {
         line_items: JSON.stringify(lineItems),
         shipping: JSON.stringify(shippingResult),
         app_user_id: appUserId,
+        is_membership_active: session?.isMembershipActive ? "true" : "false",
+        membership_discount_amount: cart.discountTotal?.amount ?? "0",
+        shopify_customer_id: shopifyCustomerId,
       },
     });
 

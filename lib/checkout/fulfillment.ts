@@ -49,13 +49,20 @@ async function createAndCompleteDraftOrder(
   shipping: CheckoutShippingInput,
   lineItems: CheckoutLineItemMeta[],
   paymentIntentId: string,
+  options?: {
+    shopifyCustomerId?: string;
+    membershipDiscountAmount?: number;
+  },
 ): Promise<FulfillmentResult> {
   logCheckout("draft_order_create_start", {
     paymentIntentId,
     email: shipping.email,
     lineItemCount: lineItems.length,
     variantIds: lineItems.map((item) => item.variantId),
+    membershipDiscountAmount: options?.membershipDiscountAmount ?? 0,
   });
+
+  const membershipDiscountAmount = options?.membershipDiscountAmount ?? 0;
 
   const createMutation = `#graphql
     mutation DraftOrderCreate($input: DraftOrderInput!) {
@@ -81,11 +88,24 @@ async function createAndCompleteDraftOrder(
     {
       input: {
         email: shipping.email,
+        ...(options?.shopifyCustomerId
+          ? { customerId: options.shopifyCustomerId }
+          : {}),
         note: `Paid via Stripe PaymentIntent ${paymentIntentId}`,
         lineItems: lineItems.map((item) => ({
           variantId: item.variantId,
           quantity: item.quantity,
         })),
+        ...(membershipDiscountAmount > 0
+          ? {
+              appliedDiscount: {
+                title: "Membership pricing",
+                description: "Automatic membership discount",
+                value: membershipDiscountAmount,
+                valueType: "FIXED_AMOUNT",
+              },
+            }
+          : {}),
         shippingAddress: mailingAddress(shipping),
         billingAddress: mailingAddress(shipping),
       },
@@ -206,11 +226,21 @@ export async function fulfillStripePayment(
     const appUserId =
       paymentIntent.metadata.app_user_id?.trim() ||
       createUserIdFromEmail(shipping.email);
+    const membershipDiscountAmount = Number(
+      paymentIntent.metadata.membership_discount_amount ?? "0",
+    );
 
     const result = await createAndCompleteDraftOrder(
       shipping,
       lineItems,
       paymentIntentId,
+      {
+        shopifyCustomerId:
+          paymentIntent.metadata.shopify_customer_id?.trim() || undefined,
+        membershipDiscountAmount: Number.isFinite(membershipDiscountAmount)
+          ? membershipDiscountAmount
+          : 0,
+      },
     );
 
     await attachAppUserIdToOrder(result.shopifyOrderId, appUserId);

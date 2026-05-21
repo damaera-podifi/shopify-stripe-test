@@ -2,6 +2,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AddToCartForm } from "@/components/store/add-to-cart-form";
+import { MemberPrice, MemberPriceBadge } from "@/components/store/member-price";
+import { getStoreSession } from "@/lib/auth/session";
+import { getProductMembershipPrices } from "@/lib/shopify/member-pricing";
 import {
   formatPrice,
   getProductByHandle,
@@ -28,11 +31,24 @@ export async function generateMetadata({ params }: ProductPageProps) {
 
 export default async function ProductPage({ params }: ProductPageProps) {
   const { handle } = await params;
-  const product = await getProductByHandle(handle);
+  const [product, session] = await Promise.all([
+    getProductByHandle(handle),
+    getStoreSession(),
+  ]);
 
   if (!product) {
     notFound();
   }
+
+  const memberPrices =
+    session?.isMembershipActive
+      ? await getProductMembershipPrices(product.variants.map((v) => v.id))
+      : new Map();
+
+  const defaultVariant = product.variants[0];
+  const defaultMemberPrice = defaultVariant
+    ? memberPrices.get(defaultVariant.id)
+    : null;
 
   const { amount, currencyCode } = product.priceRange.minVariantPrice;
   const galleryImages =
@@ -104,9 +120,21 @@ export default async function ProductPage({ params }: ProductPageProps) {
               <p className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
                 {product.title}
               </p>
-              <p className="text-2xl font-medium text-emerald-700 dark:text-emerald-400">
-                {formatPrice(amount, currencyCode)}
-              </p>
+              <div className="space-y-3">
+                <div className="text-2xl font-medium text-emerald-700 dark:text-emerald-400">
+                  {defaultMemberPrice ? (
+                    <MemberPrice
+                      price={defaultMemberPrice}
+                      showEligibility={Boolean(session?.isMembershipActive)}
+                    />
+                  ) : (
+                    formatPrice(amount, currencyCode)
+                  )}
+                </div>
+                {session?.isMembershipActive && defaultMemberPrice ? (
+                  <MemberPriceBadge eligible={defaultMemberPrice.hasDiscount} />
+                ) : null}
+              </div>
               {product.vendor ? (
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
                   {product.vendor}
@@ -131,7 +159,10 @@ export default async function ProductPage({ params }: ProductPageProps) {
                   Variants
                 </h2>
                 <ul className="space-y-2">
-                  {product.variants.map((variant) => (
+                  {product.variants.map((variant) => {
+                    const memberPrice = memberPrices.get(variant.id);
+
+                    return (
                     <li
                       key={variant.id}
                       className="flex items-center justify-between gap-4 text-sm"
@@ -140,13 +171,22 @@ export default async function ProductPage({ params }: ProductPageProps) {
                         {variant.title}
                       </span>
                       <span className="font-medium text-emerald-700 dark:text-emerald-400">
-                        {formatPrice(
-                          variant.price.amount,
-                          variant.price.currencyCode,
+                        {memberPrice ? (
+                          <MemberPrice
+                            price={memberPrice}
+                            className="text-right"
+                            showEligibility={Boolean(session?.isMembershipActive)}
+                          />
+                        ) : (
+                          formatPrice(
+                            variant.price.amount,
+                            variant.price.currencyCode,
+                          )
                         )}
                       </span>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               </div>
             ) : null}

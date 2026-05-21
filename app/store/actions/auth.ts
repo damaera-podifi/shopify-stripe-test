@@ -2,8 +2,8 @@
 
 import { redirect } from "next/navigation";
 import {
+  authenticateStoreUser,
   clearStoreSession,
-  setStoreSession,
 } from "@/lib/auth/session";
 
 export type AuthActionState = {
@@ -15,21 +15,20 @@ export async function loginAction(
   formData: FormData,
 ): Promise<AuthActionState> {
   const email = String(formData.get("email") ?? "").trim();
+  const password = String(formData.get("password") ?? "");
   const redirectTo = String(formData.get("redirectTo") ?? "/store/orders").trim();
 
   if (!email || !email.includes("@")) {
     return { error: "Enter a valid email address" };
   }
 
-  try {
-    await setStoreSession(email);
-  } catch (error) {
-    return {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Could not create a session. Check SESSION_SECRET.",
-    };
+  if (!password) {
+    return { error: "Enter your password" };
+  }
+
+  const result = await authenticateStoreUser(email, password);
+  if (!result.ok) {
+    return { error: result.error };
   }
 
   redirect(redirectTo.startsWith("/") ? redirectTo : "/store/orders");

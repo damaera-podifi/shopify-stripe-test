@@ -1,0 +1,14 @@
+{
+  "users": [
+    {
+      "email": "muhammad.syafrizal@podifi.ai",
+      "password": "demo123",
+      "is_membership_active": true
+    },
+    {
+      "email": "muhammad.syafrizal+1@podifi.ai",
+      "password": "demo123",
+      "is_membership_active": false
+    }
+  ]
+}

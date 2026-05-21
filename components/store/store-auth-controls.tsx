@@ -12,6 +12,7 @@ export function StoreAuthControls({ session }: StoreAuthControlsProps) {
       <>
         <span className="hidden max-w-[180px] truncate text-zinc-500 sm:inline dark:text-zinc-400">
           {session.email}
+          {session.isMembershipActive ? " · Member" : " · Membership inactive"}
         </span>
         <form action={logoutAction}>
           <button

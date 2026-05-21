@@ -1,14 +1,15 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import {
   addToCart as addToCartMutation,
   removeCartLine,
   updateCartLine,
+  STORE_CART_CACHE_TAG,
 } from "@/lib/shopify/cart";
 
 function revalidateStorePaths() {
-  revalidatePath("/store", "layout");
+  updateTag(STORE_CART_CACHE_TAG);
   revalidatePath("/store/cart");
   revalidatePath("/store/checkout");
 }

@@ -7,10 +7,18 @@ import {
 import type { CartLine } from "@/lib/shopify/cart";
 import { formatPrice } from "@/lib/shopify/products";
 
+function lineDiscountTotal(line: CartLine): number {
+  return line.discountAllocations.reduce(
+    (sum, allocation) => sum + Number(allocation.discountedAmount.amount),
+    0,
+  );
+}
+
 export function CartLineItem({ line }: { line: CartLine }) {
   const { merchandise } = line;
-  const lineTotal =
-    Number(merchandise.price.amount) * line.quantity;
+  const lineSubtotal = Number(line.cost.subtotalAmount.amount);
+  const lineTotal = Number(line.cost.totalAmount.amount);
+  const discountTotal = lineDiscountTotal(line);
 
   return (
     <li className="flex gap-4 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
@@ -53,6 +61,15 @@ export function CartLineItem({ line }: { line: CartLine }) {
             )}{" "}
             each
           </p>
+          {discountTotal > 0 ? (
+            <p className="text-sm text-emerald-700 dark:text-emerald-400">
+              Membership discount: -
+              {formatPrice(
+                String(discountTotal),
+                line.cost.totalAmount.currencyCode,
+              )}
+            </p>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -90,9 +107,19 @@ export function CartLineItem({ line }: { line: CartLine }) {
 
         <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
           Line total:{" "}
+          {discountTotal > 0 ? (
+            <>
+              <span className="mr-2 text-zinc-400 line-through">
+                {formatPrice(
+                  String(lineSubtotal),
+                  line.cost.subtotalAmount.currencyCode,
+                )}
+              </span>
+            </>
+          ) : null}
           {formatPrice(
             String(lineTotal),
-            merchandise.price.currencyCode,
+            line.cost.totalAmount.currencyCode,
           )}
         </p>
       </div>

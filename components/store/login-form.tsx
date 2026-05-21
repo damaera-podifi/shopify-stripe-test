@@ -40,9 +40,26 @@ export function LoginForm({
           placeholder="you@example.com"
           className="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-900 outline-none ring-emerald-600 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
         />
+      </div>
+      <div className="text-left">
+        <label
+          htmlFor="login-password"
+          className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+        >
+          Password
+        </label>
+        <input
+          id="login-password"
+          name="password"
+          type="password"
+          required
+          autoComplete="current-password"
+          className="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-900 outline-none ring-emerald-600 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+        />
         <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-          This email defines your account. Checkout can use a different contact
-          email, but orders stay linked to this sign-in.
+          Accounts are stored in <code className="text-xs">data/users.json</code>
+          . Checkout can use a different contact email, but orders stay linked to
+          this sign-in.
         </p>
       </div>
       {state.error ? (
@@ -53,7 +70,7 @@ export function LoginForm({
         disabled={pending}
         className="w-full rounded-full bg-emerald-700 px-6 py-3 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-60 dark:bg-emerald-600"
       >
-        {pending ? "Signing in..." : "Continue"}
+        {pending ? "Signing in..." : "Sign in"}
       </button>
     </form>
   );

@@ -25,9 +25,28 @@ pnpm install
 cp .env.example .env.local
 ```
 
-See `.env.example` for required Shopify and Stripe variables. The Admin token needs scopes to create and complete draft orders (e.g. `write_draft_orders`, `read_products`), read/update orders (`read_orders`, `write_orders`), and returns (`read_returns`, `write_returns`).
+See `.env.example` for required Shopify and Stripe variables. The Admin token needs scopes to create and complete draft orders (e.g. `write_draft_orders`, `read_products`), read/update orders (`read_orders`, `write_orders`), returns (`read_returns`, `write_returns`), and customer sync for membership pricing (`read_customers`, `write_customers`).
 
-Set `SESSION_SECRET` to any long random string for signed customer sessions (email sign-in cookie).
+Customer sign-in uses `data/users.json` (email, password, `is_membership_active`). **Your app password is the only password users enter** — it is not checked against a separate Shopify login on each sign-in.
+
+Active sessions are stored in `data/sessions.json` and `data/auth-state.json` (no auth cookies).
+
+### Membership pricing spike (Shopify automatic discounts)
+
+On login, the app:
+
+1. Validates the user against `data/users.json` (our account system).
+2. If the user is an active member and **no Shopify customer exists yet**, creates one via Storefront API using the app password (Shopify may send a one-time verification email).
+3. If the customer **already exists** in Shopify, only **updates** them (tag `is_membership_active`, metafield) — never tries to create again.
+4. Links the cart to the member email so automatic discounts can apply.
+
+Shopify Admin setup:
+
+1. Create a **customer segment**: `customer_tags CONTAINS 'is_membership_active'`
+2. Create an **automatic discount** limited to that segment (e.g. 20% off a specific product).
+3. Enable **Classic customer accounts** in Shopify Admin.
+
+Sign in with your user from `data/users.json`. Add the discounted product to cart while signed in.
 
 ## Run the app
 
