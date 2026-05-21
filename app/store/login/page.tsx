@@ -28,7 +28,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           Sign in
         </h1>
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Use your account email to see orders linked to your profile.
+          Sign in with the email and password from your account record.
         </p>
       </div>
 

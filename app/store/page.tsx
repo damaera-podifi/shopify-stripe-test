@@ -1,12 +1,15 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { ProductCard } from "@/components/store/product-card";
 import { StoreFilters } from "@/components/store/store-filters";
+import { getStoreSession } from "@/lib/auth/session";
 import {
   buildFilterFacets,
   filterStoreProducts,
   hasActiveFilters,
   parseActiveFilters,
 } from "@/lib/shopify/filters";
+import { getStoreListingMembershipPrices } from "@/lib/shopify/member-pricing";
 import { getStoreProducts } from "@/lib/shopify/products";
 
 export const metadata = {
@@ -29,6 +32,7 @@ function FiltersSkeleton() {
 export default async function StorePage({ searchParams }: StorePageProps) {
   const params = await searchParams;
   const active = parseActiveFilters(params);
+  const session = await getStoreSession();
 
   let allProducts: Awaited<ReturnType<typeof getStoreProducts>>["products"] = [];
   let error: string | null = null;
@@ -41,6 +45,13 @@ export default async function StorePage({ searchParams }: StorePageProps) {
   }
 
   const products = filterStoreProducts(allProducts, active);
+  const memberPrices =
+    session?.isMembershipActive && products.length > 0
+      ? await getStoreListingMembershipPrices(products)
+      : new Map();
+  const eligibleDiscountCount = [...memberPrices.values()].filter(
+    (price) => price.hasDiscount,
+  ).length;
   const facets = buildFilterFacets(allProducts, active);
   const filtersActive = hasActiveFilters(active);
 
@@ -52,6 +63,38 @@ export default async function StorePage({ searchParams }: StorePageProps) {
         </Suspense>
 
         <div className="min-w-0 flex-1">
+          {session?.isMembershipActive ? (
+            <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100">
+              <p className="font-medium">Member pricing is active</p>
+              <p className="mt-1 text-emerald-800 dark:text-emerald-200">
+                Eligible products show your discounted member price. Products
+                marked &quot;Not eligible&quot; stay at the regular price.
+                {eligibleDiscountCount > 0
+                  ? ` ${eligibleDiscountCount} product${eligibleDiscountCount === 1 ? "" : "s"} currently eligible.`
+                  : null}
+              </p>
+            </div>
+          ) : session ? (
+            <div className="mb-6 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
+              <p className="font-medium">Signed in · membership inactive</p>
+              <p className="mt-1">
+                You can browse and checkout at regular prices. Member discounts
+                apply only when your membership is active.
+              </p>
+            </div>
+          ) : (
+            <div className="mb-6 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
+              <Link
+                href="/store/login"
+                className="font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+              >
+                Sign in
+              </Link>{" "}
+              to browse with your account. Active members see discounted prices
+              on eligible products.
+            </div>
+          )}
+
           <p className="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
             {filtersActive ? "Filtered results" : "All products"}
             {products.length > 0 ? ` · ${products.length} products` : null}
@@ -74,7 +117,12 @@ export default async function StorePage({ searchParams }: StorePageProps) {
           ) : (
             <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
               {products.map((product) => (
-                <ProductCard key={product.id} product={product} />
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  memberPrice={memberPrices.get(product.id)}
+                  isMember={session?.isMembershipActive}
+                />
               ))}
             </div>
           )}

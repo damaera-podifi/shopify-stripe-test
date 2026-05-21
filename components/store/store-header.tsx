@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useCartCount } from "@/components/store/cart-count-context";
 import { StoreAuthControls } from "@/components/store/store-auth-controls";
 import type { StoreSession } from "@/lib/auth/session";
 
@@ -8,7 +11,6 @@ type StoreHeaderProps = {
   title?: string;
   backHref?: string;
   backLabel?: string;
-  cartCount?: number;
   session?: StoreSession | null;
 };
 
@@ -18,9 +20,9 @@ export function StoreHeader({
   title,
   backHref = "/store",
   backLabel = "All products",
-  cartCount = 0,
   session = null,
 }: StoreHeaderProps) {
+  const { count: cartCount } = useCartCount();
   return (
     <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
       <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">

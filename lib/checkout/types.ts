@@ -13,4 +13,9 @@ export type CheckoutShippingInput = {
 export type CheckoutLineItemMeta = {
   variantId: string;
   quantity: number;
+  /** Discounted unit price the customer paid (presentment currency). */
+  unitPrice?: string;
+  /** Pre-discount unit price for display on the Shopify order. */
+  originalUnitPrice?: string;
+  currencyCode?: string;
 };

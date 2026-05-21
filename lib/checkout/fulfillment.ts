@@ -1,9 +1,16 @@
 import type Stripe from "stripe";
 import { logCheckout, logCheckoutError } from "./logger";
+import {
+  buildDraftOrderLineItemInput,
+  buildDraftOrderNote,
+  lineMembershipDiscountAmount,
+  totalMembershipDiscountFromLines,
+} from "./draft-order-lines";
 import type { CheckoutLineItemMeta, CheckoutShippingInput } from "./types";
 import { attachAppUserIdToOrder } from "./order-ownership";
 import { createUserIdFromEmail } from "@/lib/auth/user-id";
-import { clearCartIdCookie, getCartIdFromCookie } from "@/lib/shopify/cart-cookie";
+import { clearCartIdCookie } from "@/lib/shopify/cart-cookie";
+import { revalidateCartCount } from "@/lib/shopify/cart";
 import { adminGraphql } from "@/lib/shopify/admin";
 import { getStripe } from "@/lib/stripe/server";
 
@@ -49,13 +56,36 @@ async function createAndCompleteDraftOrder(
   shipping: CheckoutShippingInput,
   lineItems: CheckoutLineItemMeta[],
   paymentIntentId: string,
+  options?: {
+    shopifyCustomerId?: string;
+    membershipDiscountAmount?: number;
+  },
 ): Promise<FulfillmentResult> {
   logCheckout("draft_order_create_start", {
     paymentIntentId,
     email: shipping.email,
     lineItemCount: lineItems.length,
     variantIds: lineItems.map((item) => item.variantId),
+    membershipDiscountAmount: options?.membershipDiscountAmount ?? 0,
+    lineMembershipDiscounts: lineItems
+      .map((item) => ({
+        variantId: item.variantId,
+        unitPrice: item.unitPrice,
+        originalUnitPrice: item.originalUnitPrice,
+        lineDiscount: totalMembershipDiscountFromLines([item]),
+      }))
+      .filter((item) => item.lineDiscount > 0),
   });
+
+  const membershipDiscountAmount =
+    options?.membershipDiscountAmount ??
+    totalMembershipDiscountFromLines(lineItems);
+  const hasLineDiscounts = lineItems.some(
+    (item) =>
+      item.unitPrice &&
+      item.originalUnitPrice &&
+      lineMembershipDiscountAmount(item) > 0,
+  );
 
   const createMutation = `#graphql
     mutation DraftOrderCreate($input: DraftOrderInput!) {
@@ -81,11 +111,33 @@ async function createAndCompleteDraftOrder(
     {
       input: {
         email: shipping.email,
-        note: `Paid via Stripe PaymentIntent ${paymentIntentId}`,
-        lineItems: lineItems.map((item) => ({
-          variantId: item.variantId,
-          quantity: item.quantity,
-        })),
+        ...(options?.shopifyCustomerId
+          ? { customerId: options.shopifyCustomerId }
+          : {}),
+        note: buildDraftOrderNote(paymentIntentId, lineItems),
+        ...(membershipDiscountAmount > 0
+          ? {
+              tags: ["membership-pricing"],
+              customAttributes: [
+                { key: "pricing_type", value: "membership" },
+                {
+                  key: "membership_discount_total",
+                  value: membershipDiscountAmount.toFixed(2),
+                },
+              ],
+            }
+          : {}),
+        lineItems: lineItems.map((item) => buildDraftOrderLineItemInput(item)),
+        ...(membershipDiscountAmount > 0 && !hasLineDiscounts
+          ? {
+              appliedDiscount: {
+                title: "Membership pricing",
+                description: "Active membership member discount",
+                value: membershipDiscountAmount,
+                valueType: "FIXED_AMOUNT",
+              },
+            }
+          : {}),
         shippingAddress: mailingAddress(shipping),
         billingAddress: mailingAddress(shipping),
       },
@@ -206,11 +258,21 @@ export async function fulfillStripePayment(
     const appUserId =
       paymentIntent.metadata.app_user_id?.trim() ||
       createUserIdFromEmail(shipping.email);
+    const membershipDiscountAmount = Number(
+      paymentIntent.metadata.membership_discount_amount ?? "0",
+    );
 
     const result = await createAndCompleteDraftOrder(
       shipping,
       lineItems,
       paymentIntentId,
+      {
+        shopifyCustomerId:
+          paymentIntent.metadata.shopify_customer_id?.trim() || undefined,
+        membershipDiscountAmount: Number.isFinite(membershipDiscountAmount)
+          ? membershipDiscountAmount
+          : 0,
+      },
     );
 
     await attachAppUserIdToOrder(result.shopifyOrderId, appUserId);
@@ -224,11 +286,8 @@ export async function fulfillStripePayment(
       },
     });
 
-    const cartId = paymentIntent.metadata.cart_id;
-    const cookieCartId = await getCartIdFromCookie();
-    if (cartId && cookieCartId === cartId) {
-      await clearCartIdCookie();
-    }
+    await clearCartIdCookie();
+    revalidateCartCount();
 
     logCheckout("fulfillment_ok", {
       paymentIntentId,

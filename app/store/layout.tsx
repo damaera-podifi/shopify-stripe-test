@@ -1,6 +1,6 @@
-import { StoreHeader } from "@/components/store/store-header";
+import { StoreShell } from "@/components/store/store-shell";
 import { getStoreSession } from "@/lib/auth/session";
-import { getCart } from "@/lib/shopify/cart";
+import { getCartQuantity } from "@/lib/shopify/cart";
 import { getStoreProducts } from "@/lib/shopify/products";
 
 export default async function StoreLayout({
@@ -8,21 +8,20 @@ export default async function StoreLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const [cart, shop, session] = await Promise.all([
-    getCart(),
+  const [cartCount, shop, session] = await Promise.all([
+    getCartQuantity(),
     getStoreProducts({ first: 1 }),
     getStoreSession(),
   ]);
 
   return (
-    <div className="min-h-full bg-zinc-50 font-sans dark:bg-black">
-      <StoreHeader
-        shopName={shop.shopName}
-        shopUrl={shop.shopUrl}
-        cartCount={cart?.totalQuantity ?? 0}
-        session={session}
-      />
+    <StoreShell
+      initialCartCount={cartCount}
+      shopName={shop.shopName}
+      shopUrl={shop.shopUrl}
+      session={session}
+    >
       {children}
-    </div>
+    </StoreShell>
   );
 }

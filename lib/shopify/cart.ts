@@ -1,18 +1,37 @@
+import { revalidateTag } from "next/cache";
 import {
   clearCartIdCookie,
   getCartIdFromCookie,
   setCartIdCookie,
 } from "./cart-cookie";
+import {
+  buyerIdentityInputForSession,
+  syncCartForActiveSession,
+} from "./cart-membership";
+import { getStoreSession } from "@/lib/auth/session";
+import { logCheckoutError } from "@/lib/checkout/logger";
 import { storefrontMutation, storefrontQuery } from "./storefront";
+
+export const STORE_CART_CACHE_TAG = "store-cart";
 
 export type CartMoney = {
   amount: string;
   currencyCode: string;
 };
 
+export type CartDiscountAllocation = {
+  discountedAmount: CartMoney;
+  title: string;
+};
+
 export type CartLine = {
   id: string;
   quantity: number;
+  cost: {
+    subtotalAmount: CartMoney;
+    totalAmount: CartMoney;
+  };
+  discountAllocations: CartDiscountAllocation[];
   merchandise: {
     id: string;
     title: string;
@@ -34,8 +53,26 @@ export type Cart = {
     subtotalAmount: CartMoney;
     totalAmount: CartMoney;
   };
+  discountTotal: CartMoney | null;
   lines: CartLine[];
 };
+
+/** Smaller payload for add/create mutations (faster Storefront responses). */
+const CART_SUMMARY_FIELDS = `
+  id
+  checkoutUrl
+  totalQuantity
+  cost {
+    subtotalAmount {
+      amount
+      currencyCode
+    }
+    totalAmount {
+      amount
+      currencyCode
+    }
+  }
+`;
 
 const CART_FIELDS = `
   id
@@ -56,6 +93,28 @@ const CART_FIELDS = `
       node {
         id
         quantity
+        cost {
+          subtotalAmount {
+            amount
+            currencyCode
+          }
+          totalAmount {
+            amount
+            currencyCode
+          }
+        }
+        discountAllocations {
+          discountedAmount {
+            amount
+            currencyCode
+          }
+          ... on CartAutomaticDiscountAllocation {
+            title
+          }
+          ... on CartCodeDiscountAllocation {
+            code
+          }
+        }
         merchandise {
           ... on ProductVariant {
             id
@@ -80,23 +139,56 @@ const CART_FIELDS = `
   }
 `;
 
+type CartLinePayload = Omit<CartLine, "discountAllocations"> & {
+  discountAllocations: Array<{
+    discountedAmount: CartMoney;
+    title?: string;
+    code?: string;
+  }>;
+};
+
 type CartPayload = {
   id: string;
   checkoutUrl: string;
   totalQuantity: number;
   cost: Cart["cost"];
-  lines: { edges: Array<{ node: CartLine }> };
+  lines?: { edges: Array<{ node: CartLinePayload }> };
 };
+
+function normalizeDiscountAllocations(
+  allocations: CartLinePayload["discountAllocations"],
+): CartDiscountAllocation[] {
+  return allocations.map((allocation) => ({
+    discountedAmount: allocation.discountedAmount,
+    title: allocation.title ?? allocation.code ?? "Discount",
+  }));
+}
 
 function normalizeCart(cart: CartPayload | null | undefined): Cart | null {
   if (!cart) return null;
+
+  const subtotal = Number(cart.cost.subtotalAmount.amount);
+  const total = Number(cart.cost.totalAmount.amount);
+  const discountAmount = Math.max(0, subtotal - total);
 
   return {
     id: cart.id,
     checkoutUrl: cart.checkoutUrl,
     totalQuantity: cart.totalQuantity,
     cost: cart.cost,
-    lines: cart.lines.edges.map((edge) => edge.node),
+    discountTotal:
+      discountAmount > 0
+        ? {
+            amount: discountAmount.toFixed(2),
+            currencyCode: cart.cost.totalAmount.currencyCode,
+          }
+        : null,
+    lines: (cart.lines?.edges ?? []).map((edge) => ({
+      ...edge.node,
+      discountAllocations: normalizeDiscountAllocations(
+        edge.node.discountAllocations,
+      ),
+    })),
   };
 }
 
@@ -107,23 +199,67 @@ function getUserErrors(
   return userErrors.map((e) => e.message).join(", ");
 }
 
-export async function getCart(): Promise<Cart | null> {
-  const cartId = await getCartIdFromCookie();
-  if (!cartId) return null;
+async function cartCreateInput(
+  lines: Array<{ merchandiseId: string; quantity: number }>,
+) {
+  const buyerIdentity = await buyerIdentityInputForSession();
 
+  return {
+    lines: lines.map((line) => ({
+      merchandiseId: line.merchandiseId,
+      quantity: line.quantity,
+    })),
+    ...(buyerIdentity ? { buyerIdentity } : {}),
+  };
+}
+
+async function fetchCartQuantityById(cartId: string): Promise<number> {
   const query = `#graphql
-    query GetCart($cartId: ID!) {
+    query CartQuantity($cartId: ID!) {
       cart(id: $cartId) {
-        ${CART_FIELDS}
+        totalQuantity
       }
     }
   `;
 
+  const data = await storefrontQuery<{ cart: { totalQuantity: number } | null }>(
+    query,
+    { cartId },
+    { cache: "no-store" },
+  );
+
+  return data.cart?.totalQuantity ?? 0;
+}
+
+/** Lightweight cart count for the store header (no membership sync). */
+export async function getCartQuantity(): Promise<number> {
+  const cartId = await getCartIdFromCookie();
+  if (!cartId) return 0;
+
   try {
-    const data = await storefrontQuery<{ cart: CartPayload | null }>(query, {
-      cartId,
-    });
-    return normalizeCart(data.cart);
+    return await fetchCartQuantityById(cartId);
+  } catch {
+    await clearCartIdCookie();
+    return 0;
+  }
+}
+
+export function revalidateCartCount() {
+  revalidateTag(STORE_CART_CACHE_TAG, "max");
+}
+
+export async function getCart(): Promise<Cart | null> {
+  const cartId = await getCartIdFromCookie();
+  if (!cartId) return null;
+
+  try {
+    await syncCartForActiveSession();
+  } catch (error) {
+    logCheckoutError("cart_membership_sync_failed", error, { cartId });
+  }
+
+  try {
+    return await fetchCartById(cartId);
   } catch {
     await clearCartIdCookie();
     return null;
@@ -139,15 +275,60 @@ async function persistCart(cart: CartPayload | null | undefined) {
   return normalized;
 }
 
+async function fetchCartById(cartId: string): Promise<Cart | null> {
+  const query = `#graphql
+    query GetCart($cartId: ID!) {
+      cart(id: $cartId) {
+        ${CART_FIELDS}
+      }
+    }
+  `;
+
+  const data = await storefrontQuery<{ cart: CartPayload | null }>(
+    query,
+    { cartId },
+    { cache: "no-store" },
+  );
+
+  return normalizeCart(data.cart);
+}
+
+async function finalizeCartMutation(
+  cart: CartPayload | null | undefined,
+  options?: { skipMembershipAdmin?: boolean },
+) {
+  const normalized = await persistCart(cart);
+  const session = await getStoreSession();
+
+  if (!session) {
+    return normalized;
+  }
+
+  try {
+    await syncCartForActiveSession({
+      skipMembershipAdmin: options?.skipMembershipAdmin,
+    });
+  } catch (error) {
+    logCheckoutError("cart_membership_sync_failed", error, { cartId: normalized.id });
+  }
+
+  if (session.isMembershipActive) {
+    const refreshed = await fetchCartById(normalized.id);
+    return refreshed ?? normalized;
+  }
+
+  return normalized;
+}
+
 export async function createCart(
   merchandiseId: string,
   quantity: number,
 ): Promise<Cart> {
   const mutation = `#graphql
-    mutation CartCreate($lines: [CartLineInput!]!) {
-      cartCreate(input: { lines: $lines }) {
+    mutation CartCreate($input: CartInput!) {
+      cartCreate(input: $input) {
         cart {
-          ${CART_FIELDS}
+          ${CART_SUMMARY_FIELDS}
         }
         userErrors {
           message
@@ -162,13 +343,13 @@ export async function createCart(
       userErrors: Array<{ message: string }>;
     };
   }>(mutation, {
-    lines: [{ merchandiseId, quantity }],
+    input: await cartCreateInput([{ merchandiseId, quantity }]),
   });
 
   const error = getUserErrors(data.cartCreate.userErrors);
   if (error) throw new Error(error);
 
-  return persistCart(data.cartCreate.cart);
+  return finalizeCartMutation(data.cartCreate.cart, { skipMembershipAdmin: true });
 }
 
 export async function addManyToCart(
@@ -182,10 +363,10 @@ export async function addManyToCart(
 
   if (!cartId) {
     const mutation = `#graphql
-      mutation CartCreate($lines: [CartLineInput!]!) {
-        cartCreate(input: { lines: $lines }) {
+      mutation CartCreate($input: CartInput!) {
+        cartCreate(input: $input) {
           cart {
-            ${CART_FIELDS}
+            ${CART_SUMMARY_FIELDS}
           }
           userErrors {
             message
@@ -200,23 +381,20 @@ export async function addManyToCart(
         userErrors: Array<{ message: string }>;
       };
     }>(mutation, {
-      lines: lines.map((line) => ({
-        merchandiseId: line.merchandiseId,
-        quantity: line.quantity,
-      })),
+      input: await cartCreateInput(lines),
     });
 
     const error = getUserErrors(data.cartCreate.userErrors);
     if (error) throw new Error(error);
 
-    return persistCart(data.cartCreate.cart);
+    return finalizeCartMutation(data.cartCreate.cart, { skipMembershipAdmin: true });
   }
 
   const mutation = `#graphql
     mutation CartLinesAdd($cartId: ID!, $lines: [CartLineInput!]!) {
       cartLinesAdd(cartId: $cartId, lines: $lines) {
         cart {
-          ${CART_FIELDS}
+          ${CART_SUMMARY_FIELDS}
         }
         userErrors {
           message
@@ -241,7 +419,7 @@ export async function addManyToCart(
   const error = getUserErrors(data.cartLinesAdd.userErrors);
   if (error) throw new Error(error);
 
-  return persistCart(data.cartLinesAdd.cart);
+  return finalizeCartMutation(data.cartLinesAdd.cart, { skipMembershipAdmin: true });
 }
 
 export async function addToCart(
@@ -258,7 +436,7 @@ export async function addToCart(
     mutation CartLinesAdd($cartId: ID!, $lines: [CartLineInput!]!) {
       cartLinesAdd(cartId: $cartId, lines: $lines) {
         cart {
-          ${CART_FIELDS}
+          ${CART_SUMMARY_FIELDS}
         }
         userErrors {
           message
@@ -280,7 +458,7 @@ export async function addToCart(
   const error = getUserErrors(data.cartLinesAdd.userErrors);
   if (error) throw new Error(error);
 
-  return persistCart(data.cartLinesAdd.cart);
+  return finalizeCartMutation(data.cartLinesAdd.cart, { skipMembershipAdmin: true });
 }
 
 export async function updateCartLine(
@@ -316,7 +494,7 @@ export async function updateCartLine(
   const error = getUserErrors(data.cartLinesUpdate.userErrors);
   if (error) throw new Error(error);
 
-  return persistCart(data.cartLinesUpdate.cart);
+  return finalizeCartMutation(data.cartLinesUpdate.cart);
 }
 
 export async function removeCartLine(lineId: string): Promise<Cart | null> {
@@ -352,7 +530,8 @@ export async function removeCartLine(lineId: string): Promise<Cart | null> {
   const cart = normalizeCart(data.cartLinesRemove.cart);
   if (!cart || cart.totalQuantity === 0) {
     await clearCartIdCookie();
+    return cart;
   }
 
-  return cart;
+  return finalizeCartMutation(data.cartLinesRemove.cart);
 }

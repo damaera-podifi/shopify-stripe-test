@@ -53,7 +53,12 @@ async function storefrontRequest<T>(
 export async function storefrontQuery<T>(
   query: string,
   variables?: Record<string, unknown>,
+  options?: { cache?: RequestCache; revalidate?: number | false },
 ): Promise<T> {
+  if (options) {
+    return storefrontRequest<T>(query, variables, options);
+  }
+
   return storefrontRequest<T>(query, variables, { revalidate: 60 });
 }
 

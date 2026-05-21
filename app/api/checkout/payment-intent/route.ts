@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { getStoreSession } from "@/lib/auth/session";
 import { createUserIdFromEmail } from "@/lib/auth/user-id";
+import {
+  buildCheckoutLineItemsFromCart,
+  computeMembershipDiscountAmount,
+} from "@/lib/checkout/cart-checkout";
 import { parseShippingFromBody } from "@/lib/checkout/validate-shipping";
 import { getCart } from "@/lib/shopify/cart";
 import { getStripe } from "@/lib/stripe/server";
@@ -36,14 +40,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid cart total" }, { status: 400 });
     }
 
-    const lineItems = cart.lines.map((line) => ({
-      variantId: line.merchandise.id,
-      quantity: line.quantity,
-    }));
+    const lineItems = buildCheckoutLineItemsFromCart(cart);
+    const membershipDiscountAmount = computeMembershipDiscountAmount(cart);
 
     const session = await getStoreSession();
     const appUserId =
       session?.userId ?? createUserIdFromEmail(shippingResult.email);
+
+    let shopifyCustomerId = "";
+    if (session?.isMembershipActive) {
+      try {
+        const { syncMembershipCustomerToShopify } = await import(
+          "@/lib/shopify/membership"
+        );
+        const sync = await syncMembershipCustomerToShopify(
+          session.email,
+          true,
+        );
+        shopifyCustomerId = sync.shopifyCustomerId;
+      } catch {
+        // Checkout can proceed; fulfillment may fall back to email-only customer lookup.
+      }
+    }
 
     const stripe = getStripe();
     const paymentIntent = await stripe.paymentIntents.create({
@@ -56,6 +74,9 @@ export async function POST(request: Request) {
         line_items: JSON.stringify(lineItems),
         shipping: JSON.stringify(shippingResult),
         app_user_id: appUserId,
+        is_membership_active: session?.isMembershipActive ? "true" : "false",
+        membership_discount_amount: membershipDiscountAmount.toFixed(2),
+        shopify_customer_id: shopifyCustomerId,
       },
     });
 

@@ -20,6 +20,10 @@
 # production
 /build
 
+# local auth session state (users.json is committed as seed data)
+/data/sessions.json
+/data/auth-state.json
+
 # misc
 .DS_Store
 *.pem

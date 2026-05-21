@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { CartLineItem } from "@/components/store/cart-line-item";
+import { CartTotalsSummary } from "@/components/store/cart-totals-summary";
+import { getStoreSession } from "@/lib/auth/session";
 import { getCart } from "@/lib/shopify/cart";
-import { formatPrice } from "@/lib/shopify/products";
 
 export const metadata = {
   title: "Cart | MLPA Health",
@@ -9,7 +10,7 @@ export const metadata = {
 };
 
 export default async function CartPage() {
-  const cart = await getCart();
+  const [cart, session] = await Promise.all([getCart(), getStoreSession()]);
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-10">
@@ -36,24 +37,20 @@ export default async function CartPage() {
           </ul>
 
           <div className="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
-            <div className="flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400">
-              <span>Subtotal</span>
-              <span>
-                {formatPrice(
-                  cart.cost.subtotalAmount.amount,
-                  cart.cost.subtotalAmount.currencyCode,
-                )}
-              </span>
-            </div>
-            <div className="mt-2 flex items-center justify-between text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-              <span>Total ({cart.totalQuantity} items)</span>
-              <span className="text-emerald-700 dark:text-emerald-400">
-                {formatPrice(
-                  cart.cost.totalAmount.amount,
-                  cart.cost.totalAmount.currencyCode,
-                )}
-              </span>
-            </div>
+            {session?.isMembershipActive ? (
+              <p className="mb-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+                Signed in as a member. Member pricing applies when Shopify
+                automatic discounts are configured.
+              </p>
+            ) : session ? (
+              <p className="mb-4 rounded-lg bg-zinc-100 px-3 py-2 text-sm text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                Signed in with an inactive membership. Regular prices apply.
+              </p>
+            ) : null}
+            <CartTotalsSummary
+              cart={cart}
+              showMembershipNote={!session}
+            />
 
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <Link
