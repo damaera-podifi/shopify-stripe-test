@@ -1,0 +1,505 @@
+import { adminGraphql } from "@/lib/shopify/admin";
+import { APP_USER_ID_KEY, APP_USER_ID_NAMESPACE } from "@/lib/auth/user-id";
+import { fulfillStripePayment } from "./fulfillment";
+
+export type OrderLineItemDetails = {
+  title: string;
+  variantTitle: string | null;
+  variantId: string | null;
+  quantity: number;
+  unitPrice: {
+    amount: string;
+    currencyCode: string;
+  };
+  image: {
+    url: string;
+    altText: string | null;
+  } | null;
+};
+
+export type OrderTrackingDetails = {
+  company: string | null;
+  number: string | null;
+  url: string | null;
+};
+
+export type ReturnableLineItem = {
+  fulfillmentLineItemId: string;
+  title: string;
+  variantTitle: string | null;
+  quantity: number;
+};
+
+export type OrderReturnSummary = {
+  id: string;
+  name: string;
+  status: string;
+};
+
+export type OrderListItem = {
+  id: string;
+  name: string;
+  createdAt: string;
+  financialStatus: string;
+  fulfillmentStatus: string;
+  total: {
+    amount: string;
+    currencyCode: string;
+  };
+};
+
+export type OrderDetails = {
+  id: string;
+  name: string;
+  email: string | null;
+  createdAt: string;
+  cancelledAt: string | null;
+  financialStatus: string;
+  fulfillmentStatus: string;
+  total: {
+    amount: string;
+    currencyCode: string;
+  };
+  lineItems: OrderLineItemDetails[];
+  tracking: OrderTrackingDetails[];
+  returnableLineItems: ReturnableLineItem[];
+  returns: OrderReturnSummary[];
+  canCancel: boolean;
+  canReorder: boolean;
+  canRequestReturn: boolean;
+  userId: string | null;
+};
+
+type AdminOrderResponse = {
+  order: {
+    id: string;
+    name: string;
+    email: string | null;
+    createdAt: string;
+    cancelledAt: string | null;
+    displayFinancialStatus: string;
+    displayFulfillmentStatus: string;
+    metafield: {
+      value: string;
+    } | null;
+    totalPriceSet: {
+      shopMoney: {
+        amount: string;
+        currencyCode: string;
+      };
+    };
+    lineItems: {
+      nodes: Array<{
+        title: string;
+        variantTitle: string | null;
+        quantity: number;
+        variant: { id: string } | null;
+        originalUnitPriceSet: {
+          shopMoney: {
+            amount: string;
+            currencyCode: string;
+          };
+        };
+        image: {
+          url: string;
+          altText: string | null;
+        } | null;
+      }>;
+    };
+    fulfillments: Array<{
+      status: string;
+      trackingInfo: Array<{
+        company: string | null;
+        number: string | null;
+        url: string | null;
+      }>;
+      fulfillmentLineItems: {
+        nodes: Array<{
+          id: string;
+          quantity: number;
+          lineItem: {
+            title: string;
+            variantTitle: string | null;
+          };
+        }>;
+      };
+    }>;
+  } | null;
+};
+
+type AdminOrderReturnsResponse = {
+  order: {
+    returns: {
+      nodes: Array<{
+        id: string;
+        name: string;
+        status: string;
+      }>;
+    };
+  } | null;
+};
+
+const ORDER_DETAILS_QUERY = `#graphql
+  query OrderDetails($id: ID!) {
+    order(id: $id) {
+      id
+      name
+      email
+      createdAt
+      cancelledAt
+      displayFinancialStatus
+      displayFulfillmentStatus
+      metafield(namespace: "${APP_USER_ID_NAMESPACE}", key: "${APP_USER_ID_KEY}") {
+        value
+      }
+      totalPriceSet {
+        shopMoney {
+          amount
+          currencyCode
+        }
+      }
+      lineItems(first: 50) {
+        nodes {
+          title
+          variantTitle
+          quantity
+          variant {
+            id
+          }
+          originalUnitPriceSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+          image {
+            url
+            altText
+          }
+        }
+      }
+      fulfillments(first: 10) {
+        status
+        trackingInfo(first: 10) {
+          company
+          number
+          url
+        }
+        fulfillmentLineItems(first: 50) {
+          nodes {
+            id
+            quantity
+            lineItem {
+              title
+              variantTitle
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const ORDER_RETURNS_QUERY = `#graphql
+  query OrderReturns($id: ID!) {
+    order(id: $id) {
+      returns(first: 10) {
+        nodes {
+          id
+          name
+          status
+        }
+      }
+    }
+  }
+`;
+
+const FULFILLED_STATUSES = new Set(["FULFILLED", "PARTIALLY_FULFILLED"]);
+const NON_CANCELLABLE_FINANCIAL = new Set(["REFUNDED", "VOIDED", "EXPIRED"]);
+
+function deriveOrderCapabilities(
+  order: NonNullable<AdminOrderResponse["order"]>,
+  returns: OrderReturnSummary[],
+) {
+  const returnableLineItems = order.fulfillments.flatMap((fulfillment) =>
+    fulfillment.fulfillmentLineItems.nodes.map((item) => ({
+      fulfillmentLineItemId: item.id,
+      title: item.lineItem.title,
+      variantTitle: item.lineItem.variantTitle,
+      quantity: item.quantity,
+    })),
+  );
+
+  const hasVariants = order.lineItems.nodes.some((item) => item.variant?.id);
+  const isCancelled = Boolean(order.cancelledAt);
+  const isFulfilled = FULFILLED_STATUSES.has(order.displayFulfillmentStatus);
+  const isPaid =
+    order.displayFinancialStatus === "PAID" ||
+    order.displayFinancialStatus === "PARTIALLY_REFUNDED";
+
+  return {
+    returnableLineItems,
+    returns,
+    canCancel:
+      !isCancelled &&
+      !isFulfilled &&
+      isPaid &&
+      !NON_CANCELLABLE_FINANCIAL.has(order.displayFinancialStatus),
+    canReorder: hasVariants && !isCancelled,
+    canRequestReturn:
+      !isCancelled &&
+      isFulfilled &&
+      returnableLineItems.length > 0 &&
+      isPaid,
+  };
+}
+
+async function fetchOrderReturns(
+  shopifyOrderId: string,
+): Promise<OrderReturnSummary[]> {
+  try {
+    const data = await adminGraphql<AdminOrderReturnsResponse>(
+      ORDER_RETURNS_QUERY,
+      { id: shopifyOrderId },
+      { operation: "orderReturns" },
+    );
+
+    return (
+      data.order?.returns.nodes.map((item) => ({
+        id: item.id,
+        name: item.name,
+        status: item.status,
+      })) ?? []
+    );
+  } catch {
+    // Missing read_returns scope — order details still load without return history.
+    return [];
+  }
+}
+
+export async function getShopifyOrderDetails(
+  shopifyOrderId: string,
+): Promise<OrderDetails | null> {
+  const data = await adminGraphql<AdminOrderResponse>(
+    ORDER_DETAILS_QUERY,
+    { id: shopifyOrderId },
+    { operation: "orderDetails" },
+  );
+
+  const order = data.order;
+  if (!order) {
+    return null;
+  }
+
+  const tracking = order.fulfillments.flatMap((fulfillment) =>
+    fulfillment.trackingInfo.map((info) => ({
+      company: info.company,
+      number: info.number,
+      url: info.url,
+    })),
+  );
+
+  const returns = await fetchOrderReturns(shopifyOrderId);
+  const capabilities = deriveOrderCapabilities(order, returns);
+
+  return {
+    id: order.id,
+    name: order.name,
+    email: order.email,
+    createdAt: order.createdAt,
+    cancelledAt: order.cancelledAt,
+    financialStatus: order.displayFinancialStatus,
+    fulfillmentStatus: order.displayFulfillmentStatus,
+    total: order.totalPriceSet.shopMoney,
+    lineItems: order.lineItems.nodes.map((item) => ({
+      title: item.title,
+      variantTitle: item.variantTitle,
+      variantId: item.variant?.id ?? null,
+      quantity: item.quantity,
+      unitPrice: item.originalUnitPriceSet.shopMoney,
+      image: item.image,
+    })),
+    tracking,
+    userId: order.metafield?.value ?? null,
+    ...capabilities,
+  };
+}
+
+export async function getOrderDetailsByPaymentIntent(
+  paymentIntentId: string,
+): Promise<OrderDetails | null> {
+  const fulfillment = await fulfillStripePayment(paymentIntentId);
+  return getShopifyOrderDetails(fulfillment.shopifyOrderId);
+}
+
+type AdminOrdersListResponse = {
+  orders: {
+    nodes: Array<{
+      id: string;
+      name: string;
+      createdAt: string;
+      displayFinancialStatus: string;
+      displayFulfillmentStatus: string;
+      totalPriceSet: {
+        shopMoney: {
+          amount: string;
+          currencyCode: string;
+        };
+      };
+    }>;
+  };
+};
+
+const ORDERS_BY_USER_ID_QUERY = `#graphql
+  query OrdersByUserId($query: String!, $first: Int!) {
+    orders(first: $first, query: $query, sortKey: CREATED_AT, reverse: true) {
+      nodes {
+        id
+        name
+        createdAt
+        displayFinancialStatus
+        displayFulfillmentStatus
+        totalPriceSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
+        }
+      }
+    }
+  }
+`;
+
+const ORDERS_BY_EMAIL_QUERY = `#graphql
+  query OrdersByEmail($query: String!, $first: Int!) {
+    orders(first: $first, query: $query, sortKey: CREATED_AT, reverse: true) {
+      nodes {
+        id
+        name
+        createdAt
+        displayFinancialStatus
+        displayFulfillmentStatus
+        totalPriceSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
+        }
+      }
+    }
+  }
+`;
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function mapOrderListItem(
+  order: AdminOrdersListResponse["orders"]["nodes"][number],
+): OrderListItem {
+  return {
+    id: order.id,
+    name: order.name,
+    createdAt: order.createdAt,
+    financialStatus: order.displayFinancialStatus,
+    fulfillmentStatus: order.displayFulfillmentStatus,
+    total: order.totalPriceSet.shopMoney,
+  };
+}
+
+export async function listShopifyOrdersByEmail(
+  email: string,
+): Promise<OrderListItem[]> {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) {
+    return [];
+  }
+
+  const data = await adminGraphql<AdminOrdersListResponse>(
+    ORDERS_BY_EMAIL_QUERY,
+    {
+      query: `email:${normalizedEmail}`,
+      first: 20,
+    },
+    { operation: "ordersByEmail" },
+  );
+
+  return data.orders.nodes.map(mapOrderListItem);
+}
+
+async function listShopifyOrdersByUserIdMetafield(
+  userId: string,
+): Promise<OrderListItem[]> {
+  const data = await adminGraphql<AdminOrdersListResponse>(
+    ORDERS_BY_USER_ID_QUERY,
+    {
+      query: `metafields.${APP_USER_ID_NAMESPACE}.${APP_USER_ID_KEY}:${userId}`,
+      first: 20,
+    },
+    { operation: "ordersByUserId" },
+  );
+
+  return data.orders.nodes.map(mapOrderListItem);
+}
+
+export async function listShopifyOrdersForUser(
+  userId: string,
+  loginEmail: string,
+): Promise<OrderListItem[]> {
+  const [byUserId, byEmail] = await Promise.all([
+    listShopifyOrdersByUserIdMetafield(userId).catch(() => [] as OrderListItem[]),
+    listShopifyOrdersByEmail(loginEmail),
+  ]);
+
+  const merged = new Map<string, OrderListItem>();
+  for (const order of [...byUserId, ...byEmail]) {
+    merged.set(order.id, order);
+  }
+
+  return [...merged.values()].sort(
+    (a, b) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+}
+
+export async function getShopifyOrderDetailsForUser(
+  shopifyOrderId: string,
+  userId: string,
+  loginEmail: string,
+): Promise<OrderDetails | null> {
+  const order = await getShopifyOrderDetails(shopifyOrderId);
+  if (!order) {
+    return null;
+  }
+
+  if (order.userId === userId) {
+    return order;
+  }
+
+  if (
+    order.email &&
+    normalizeEmail(order.email) === normalizeEmail(loginEmail)
+  ) {
+    return order;
+  }
+
+  return null;
+}
+
+export async function getShopifyOrderDetailsForEmail(
+  shopifyOrderId: string,
+  email: string,
+): Promise<OrderDetails | null> {
+  const order = await getShopifyOrderDetails(shopifyOrderId);
+  if (!order?.email) {
+    return null;
+  }
+
+  if (normalizeEmail(order.email) !== normalizeEmail(email)) {
+    return null;
+  }
+
+  return order;
+}
+
+export { normalizeEmail };

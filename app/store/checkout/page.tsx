@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CheckoutForm } from "@/components/store/checkout-form";
 import { CheckoutLineItem } from "@/components/store/checkout-line-item";
+import { getStoreSession } from "@/lib/auth/session";
 import { getStripePublishableKey } from "@/lib/stripe/config";
 import { getCart } from "@/lib/shopify/cart";
 import { formatPrice } from "@/lib/shopify/products";
@@ -12,7 +13,7 @@ export const metadata = {
 };
 
 export default async function CheckoutPage() {
-  const cart = await getCart();
+  const [cart, session] = await Promise.all([getCart(), getStoreSession()]);
 
   if (!cart || cart.lines.length === 0) {
     redirect("/store/cart");
@@ -45,6 +46,16 @@ export default async function CheckoutPage() {
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
           Enter shipping details and pay securely with Stripe. Your order is
           created in Shopify after payment succeeds.
+          {session ? (
+            <>
+              {" "}
+              Signed in as{" "}
+              <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                {session.email}
+              </span>
+              ; you can use a different contact email below.
+            </>
+          ) : null}
         </p>
       </div>
 
@@ -61,6 +72,7 @@ export default async function CheckoutPage() {
             totalAmount={cart.cost.totalAmount.amount}
             totalQuantity={cart.totalQuantity}
             disabled={hasUnavailableItems}
+            defaultEmail={session?.email ?? ""}
           />
         </section>
 

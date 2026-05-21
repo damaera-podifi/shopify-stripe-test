@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { StoreAuthControls } from "@/components/store/store-auth-controls";
+import type { StoreSession } from "@/lib/auth/session";
 
 type StoreHeaderProps = {
   shopName: string;
@@ -7,6 +9,7 @@ type StoreHeaderProps = {
   backHref?: string;
   backLabel?: string;
   cartCount?: number;
+  session?: StoreSession | null;
 };
 
 export function StoreHeader({
@@ -16,6 +19,7 @@ export function StoreHeader({
   backHref = "/store",
   backLabel = "All products",
   cartCount = 0,
+  session = null,
 }: StoreHeaderProps) {
   return (
     <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
@@ -32,6 +36,13 @@ export function StoreHeader({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm">
+          <StoreAuthControls session={session} />
+          <Link
+            href="/store/orders"
+            className="rounded-full border border-zinc-300 px-4 py-2 text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+          >
+            My orders
+          </Link>
           <Link
             href="/store/cart"
             className="relative rounded-full border border-zinc-300 px-4 py-2 text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
