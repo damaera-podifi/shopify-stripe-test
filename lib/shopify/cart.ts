@@ -1,4 +1,4 @@
-import { unstable_cache } from "next/cache";
+import { revalidateTag } from "next/cache";
 import {
   clearCartIdCookie,
   getCartIdFromCookie,
@@ -56,6 +56,23 @@ export type Cart = {
   discountTotal: CartMoney | null;
   lines: CartLine[];
 };
+
+/** Smaller payload for add/create mutations (faster Storefront responses). */
+const CART_SUMMARY_FIELDS = `
+  id
+  checkoutUrl
+  totalQuantity
+  cost {
+    subtotalAmount {
+      amount
+      currencyCode
+    }
+    totalAmount {
+      amount
+      currencyCode
+    }
+  }
+`;
 
 const CART_FIELDS = `
   id
@@ -135,7 +152,7 @@ type CartPayload = {
   checkoutUrl: string;
   totalQuantity: number;
   cost: Cart["cost"];
-  lines: { edges: Array<{ node: CartLinePayload }> };
+  lines?: { edges: Array<{ node: CartLinePayload }> };
 };
 
 function normalizeDiscountAllocations(
@@ -166,7 +183,7 @@ function normalizeCart(cart: CartPayload | null | undefined): Cart | null {
             currencyCode: cart.cost.totalAmount.currencyCode,
           }
         : null,
-    lines: cart.lines.edges.map((edge) => ({
+    lines: (cart.lines?.edges ?? []).map((edge) => ({
       ...edge.node,
       discountAllocations: normalizeDiscountAllocations(
         edge.node.discountAllocations,
@@ -214,24 +231,21 @@ async function fetchCartQuantityById(cartId: string): Promise<number> {
   return data.cart?.totalQuantity ?? 0;
 }
 
-const getCachedCartQuantity = (cartId: string) =>
-  unstable_cache(
-    () => fetchCartQuantityById(cartId),
-    ["store-cart-quantity", cartId],
-    { tags: [STORE_CART_CACHE_TAG, `${STORE_CART_CACHE_TAG}:${cartId}`] },
-  );
-
 /** Lightweight cart count for the store header (no membership sync). */
 export async function getCartQuantity(): Promise<number> {
   const cartId = await getCartIdFromCookie();
   if (!cartId) return 0;
 
   try {
-    return await getCachedCartQuantity(cartId)();
+    return await fetchCartQuantityById(cartId);
   } catch {
     await clearCartIdCookie();
     return 0;
   }
+}
+
+export function revalidateCartCount() {
+  revalidateTag(STORE_CART_CACHE_TAG, "max");
 }
 
 export async function getCart(): Promise<Cart | null> {
@@ -279,7 +293,10 @@ async function fetchCartById(cartId: string): Promise<Cart | null> {
   return normalizeCart(data.cart);
 }
 
-async function finalizeCartMutation(cart: CartPayload | null | undefined) {
+async function finalizeCartMutation(
+  cart: CartPayload | null | undefined,
+  options?: { skipMembershipAdmin?: boolean },
+) {
   const normalized = await persistCart(cart);
   const session = await getStoreSession();
 
@@ -288,7 +305,9 @@ async function finalizeCartMutation(cart: CartPayload | null | undefined) {
   }
 
   try {
-    await syncCartForActiveSession();
+    await syncCartForActiveSession({
+      skipMembershipAdmin: options?.skipMembershipAdmin,
+    });
   } catch (error) {
     logCheckoutError("cart_membership_sync_failed", error, { cartId: normalized.id });
   }
@@ -309,7 +328,7 @@ export async function createCart(
     mutation CartCreate($input: CartInput!) {
       cartCreate(input: $input) {
         cart {
-          ${CART_FIELDS}
+          ${CART_SUMMARY_FIELDS}
         }
         userErrors {
           message
@@ -330,7 +349,7 @@ export async function createCart(
   const error = getUserErrors(data.cartCreate.userErrors);
   if (error) throw new Error(error);
 
-  return finalizeCartMutation(data.cartCreate.cart);
+  return finalizeCartMutation(data.cartCreate.cart, { skipMembershipAdmin: true });
 }
 
 export async function addManyToCart(
@@ -347,7 +366,7 @@ export async function addManyToCart(
       mutation CartCreate($input: CartInput!) {
         cartCreate(input: $input) {
           cart {
-            ${CART_FIELDS}
+            ${CART_SUMMARY_FIELDS}
           }
           userErrors {
             message
@@ -368,14 +387,14 @@ export async function addManyToCart(
     const error = getUserErrors(data.cartCreate.userErrors);
     if (error) throw new Error(error);
 
-    return finalizeCartMutation(data.cartCreate.cart);
+    return finalizeCartMutation(data.cartCreate.cart, { skipMembershipAdmin: true });
   }
 
   const mutation = `#graphql
     mutation CartLinesAdd($cartId: ID!, $lines: [CartLineInput!]!) {
       cartLinesAdd(cartId: $cartId, lines: $lines) {
         cart {
-          ${CART_FIELDS}
+          ${CART_SUMMARY_FIELDS}
         }
         userErrors {
           message
@@ -400,7 +419,7 @@ export async function addManyToCart(
   const error = getUserErrors(data.cartLinesAdd.userErrors);
   if (error) throw new Error(error);
 
-  return finalizeCartMutation(data.cartLinesAdd.cart);
+  return finalizeCartMutation(data.cartLinesAdd.cart, { skipMembershipAdmin: true });
 }
 
 export async function addToCart(
@@ -417,7 +436,7 @@ export async function addToCart(
     mutation CartLinesAdd($cartId: ID!, $lines: [CartLineInput!]!) {
       cartLinesAdd(cartId: $cartId, lines: $lines) {
         cart {
-          ${CART_FIELDS}
+          ${CART_SUMMARY_FIELDS}
         }
         userErrors {
           message
@@ -439,7 +458,7 @@ export async function addToCart(
   const error = getUserErrors(data.cartLinesAdd.userErrors);
   if (error) throw new Error(error);
 
-  return finalizeCartMutation(data.cartLinesAdd.cart);
+  return finalizeCartMutation(data.cartLinesAdd.cart, { skipMembershipAdmin: true });
 }
 
 export async function updateCartLine(

@@ -9,6 +9,7 @@ import {
 import { loadStripe } from "@stripe/stripe-js";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { useCartCount } from "@/components/store/cart-count-context";
 import type { CheckoutShippingInput } from "@/lib/checkout/types";
 import { formatPrice } from "@/lib/shopify/products";
 
@@ -145,6 +146,7 @@ function PaymentStep({
   const stripe = useStripe();
   const elements = useElements();
   const router = useRouter();
+  const { clearCount } = useCartCount();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -199,6 +201,8 @@ function PaymentStep({
         setPending(false);
         return;
       }
+
+      clearCount();
 
       const orderQuery = completeData.shopifyOrderName
         ? `&order=${encodeURIComponent(completeData.shopifyOrderName)}`

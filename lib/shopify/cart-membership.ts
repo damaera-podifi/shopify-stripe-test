@@ -73,7 +73,14 @@ const ensureCartBuyerIdentity = cache(
   },
 );
 
-export async function syncCartForActiveSession(): Promise<void> {
+export type SyncCartForSessionOptions = {
+  /** Skip Admin membership sync (e.g. on add-to-cart; login already synced). */
+  skipMembershipAdmin?: boolean;
+};
+
+export async function syncCartForActiveSession(
+  options?: SyncCartForSessionOptions,
+): Promise<void> {
   const [session, cartId, buyerIdentity] = await Promise.all([
     getStoreSession(),
     getCartIdFromCookie(),
@@ -84,10 +91,12 @@ export async function syncCartForActiveSession(): Promise<void> {
     return;
   }
 
-  await syncMembershipCustomerForSession(
-    session.email,
-    session.isMembershipActive,
-  );
+  if (!options?.skipMembershipAdmin) {
+    await syncMembershipCustomerForSession(
+      session.email,
+      session.isMembershipActive,
+    );
+  }
 
   await ensureCartBuyerIdentity(cartId, buyerIdentity, session.email);
 

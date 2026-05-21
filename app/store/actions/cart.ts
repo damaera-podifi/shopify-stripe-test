@@ -1,15 +1,15 @@
 "use server";
 
-import { revalidatePath, updateTag } from "next/cache";
+import { revalidatePath } from "next/cache";
 import {
   addToCart as addToCartMutation,
   removeCartLine,
   updateCartLine,
-  STORE_CART_CACHE_TAG,
+  revalidateCartCount,
 } from "@/lib/shopify/cart";
 
 function revalidateStorePaths() {
-  updateTag(STORE_CART_CACHE_TAG);
+  revalidateCartCount();
   revalidatePath("/store/cart");
   revalidatePath("/store/checkout");
 }
@@ -17,6 +17,7 @@ function revalidateStorePaths() {
 export type CartActionState = {
   error?: string;
   success?: boolean;
+  totalQuantity?: number;
 };
 
 export async function addToCartAction(
@@ -35,9 +36,9 @@ export async function addToCartAction(
   }
 
   try {
-    await addToCartMutation(merchandiseId, quantity);
+    const cart = await addToCartMutation(merchandiseId, quantity);
     revalidateStorePaths();
-    return { success: true };
+    return { success: true, totalQuantity: cart.totalQuantity };
   } catch (e) {
     return {
       error: e instanceof Error ? e.message : "Failed to add to cart",

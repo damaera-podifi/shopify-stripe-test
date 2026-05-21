@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { getStoreSession } from "@/lib/auth/session";
 import { createUserIdFromEmail } from "@/lib/auth/user-id";
+import {
+  buildCheckoutLineItemsFromCart,
+  computeMembershipDiscountAmount,
+} from "@/lib/checkout/cart-checkout";
 import { parseShippingFromBody } from "@/lib/checkout/validate-shipping";
 import { getCart } from "@/lib/shopify/cart";
 import { getStripe } from "@/lib/stripe/server";
@@ -36,10 +40,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid cart total" }, { status: 400 });
     }
 
-    const lineItems = cart.lines.map((line) => ({
-      variantId: line.merchandise.id,
-      quantity: line.quantity,
-    }));
+    const lineItems = buildCheckoutLineItemsFromCart(cart);
+    const membershipDiscountAmount = computeMembershipDiscountAmount(cart);
 
     const session = await getStoreSession();
     const appUserId =
@@ -73,7 +75,7 @@ export async function POST(request: Request) {
         shipping: JSON.stringify(shippingResult),
         app_user_id: appUserId,
         is_membership_active: session?.isMembershipActive ? "true" : "false",
-        membership_discount_amount: cart.discountTotal?.amount ?? "0",
+        membership_discount_amount: membershipDiscountAmount.toFixed(2),
         shopify_customer_id: shopifyCustomerId,
       },
     });

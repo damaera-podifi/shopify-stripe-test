@@ -1,23 +1,21 @@
 "use client";
 
-import { useActionState } from "react";
+import { useState, useTransition } from "react";
 import {
   addToCartAction,
   type CartActionState,
 } from "@/app/store/actions/cart";
+import { useCartCount } from "@/components/store/cart-count-context";
 import { formatPrice, type StoreProductVariant } from "@/lib/shopify/products";
-
-const initialState: CartActionState = {};
 
 type AddToCartFormProps = {
   variants: StoreProductVariant[];
 };
 
 export function AddToCartForm({ variants }: AddToCartFormProps) {
-  const [state, formAction, pending] = useActionState(
-    addToCartAction,
-    initialState,
-  );
+  const { addOptimistic, setCount } = useCartCount();
+  const [message, setMessage] = useState<CartActionState>({});
+  const [isPending, startTransition] = useTransition();
 
   const defaultVariant =
     variants.find((v) => v.availableForSale) ?? variants[0];
@@ -31,8 +29,34 @@ export function AddToCartForm({ variants }: AddToCartFormProps) {
     );
   }
 
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!defaultVariant.availableForSale || isPending) return;
+
+    const formData = new FormData(e.currentTarget);
+    const quantity = Number(formData.get("quantity") ?? 1);
+
+    addOptimistic(quantity);
+    setMessage({ success: true });
+
+    startTransition(async () => {
+      const result = await addToCartAction({}, formData);
+
+      if (result.error) {
+        addOptimistic(-quantity);
+        setMessage({ error: result.error });
+        return;
+      }
+
+      if (result.totalQuantity !== undefined) {
+        setCount(result.totalQuantity);
+      }
+      setMessage({ success: true });
+    });
+  }
+
   return (
-    <form action={formAction} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
       {hasMultipleVariants ? (
         <label className="block space-y-2">
           <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
@@ -79,16 +103,16 @@ export function AddToCartForm({ variants }: AddToCartFormProps) {
 
       <button
         type="submit"
-        disabled={pending || !defaultVariant.availableForSale}
+        disabled={!defaultVariant.availableForSale}
         className="w-full rounded-full bg-emerald-700 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-emerald-600 dark:hover:bg-emerald-500"
       >
-        {pending ? "Adding…" : "Add to cart"}
+        Add to cart
       </button>
 
-      {state.error ? (
-        <p className="text-sm text-red-600 dark:text-red-400">{state.error}</p>
+      {message.error ? (
+        <p className="text-sm text-red-600 dark:text-red-400">{message.error}</p>
       ) : null}
-      {state.success ? (
+      {message.success ? (
         <p className="text-sm text-emerald-700 dark:text-emerald-400">
           Added to cart.{" "}
           <a href="/store/cart" className="font-medium underline">

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { CartCountReset } from "@/components/store/cart-count-context";
 import { OrderSummary } from "@/components/store/order-summary";
 import { getOrderDetailsByPaymentIntent } from "@/lib/checkout/order-details";
 import { logCheckout, logCheckoutError } from "@/lib/checkout/logger";
@@ -46,6 +47,7 @@ export default async function CheckoutSuccessPage({
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-16">
+      <CartCountReset />
       <div className="text-center">
         {error ? (
           <>
