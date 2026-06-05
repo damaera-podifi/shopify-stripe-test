@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CartLineItem } from "@/components/store/cart-line-item";
 import { CartTotalsSummary } from "@/components/store/cart-totals-summary";
+import { DiscountCodeForm } from "@/components/store/discount-code-form";
 import { getStoreSession } from "@/lib/auth/session";
 import { getCart } from "@/lib/shopify/cart";
 
@@ -51,6 +52,10 @@ export default async function CartPage() {
               cart={cart}
               showMembershipNote={!session}
             />
+
+            <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+              <DiscountCodeForm discountCodes={cart.discountCodes} />
+            </div>
 
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <Link

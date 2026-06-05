@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { CartLine } from "@/lib/shopify/cart";
+import { lineDiscountBySource } from "@/lib/shopify/cart-discounts";
 import { formatPrice } from "@/lib/shopify/products";
 
 function lineDiscountTotal(line: CartLine): number {
@@ -15,6 +16,8 @@ export function CheckoutLineItem({ line }: { line: CartLine }) {
   const lineSubtotal = Number(line.cost.subtotalAmount.amount);
   const lineTotal = Number(line.cost.totalAmount.amount);
   const discountTotal = lineDiscountTotal(line);
+  const membershipDiscount = lineDiscountBySource(line, "automatic");
+  const voucherDiscount = lineDiscountBySource(line, "code");
 
   return (
     <li className="flex gap-4 border-b border-zinc-200 py-4 last:border-0 dark:border-zinc-800">
@@ -56,9 +59,18 @@ export function CheckoutLineItem({ line }: { line: CartLine }) {
             merchandise.price.currencyCode,
           )}
         </p>
-        {discountTotal > 0 ? (
+        {membershipDiscount > 0 ? (
           <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-400">
             Membership discount applied
+          </p>
+        ) : null}
+        {voucherDiscount > 0 ? (
+          <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-400">
+            {line.discountAllocations
+              .filter((allocation) => allocation.source === "code")
+              .map((allocation) => allocation.code ?? allocation.title)
+              .join(", ") || "Promo"}{" "}
+            discount applied
           </p>
         ) : null}
         {!merchandise.availableForSale ? (

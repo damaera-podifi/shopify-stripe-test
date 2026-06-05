@@ -3,6 +3,7 @@ import { logCheckout, logCheckoutError } from "./logger";
 import {
   buildDraftOrderLineItemInput,
   buildDraftOrderNote,
+  buildOrderLevelAppliedDiscount,
   lineMembershipDiscountAmount,
   totalMembershipDiscountFromLines,
 } from "./draft-order-lines";
@@ -59,6 +60,8 @@ async function createAndCompleteDraftOrder(
   options?: {
     shopifyCustomerId?: string;
     membershipDiscountAmount?: number;
+    voucherDiscountAmount?: number;
+    discountCodes?: string[];
   },
 ): Promise<FulfillmentResult> {
   logCheckout("draft_order_create_start", {
@@ -80,12 +83,20 @@ async function createAndCompleteDraftOrder(
   const membershipDiscountAmount =
     options?.membershipDiscountAmount ??
     totalMembershipDiscountFromLines(lineItems);
+  const voucherDiscountAmount = options?.voucherDiscountAmount ?? 0;
+  const discountCodes = options?.discountCodes ?? [];
   const hasLineDiscounts = lineItems.some(
     (item) =>
       item.unitPrice &&
       item.originalUnitPrice &&
       lineMembershipDiscountAmount(item) > 0,
   );
+  const orderLevelAppliedDiscount = buildOrderLevelAppliedDiscount({
+    membershipDiscountAmount,
+    voucherDiscountAmount,
+    discountCodes,
+    hasLineDiscounts,
+  });
 
   const createMutation = `#graphql
     mutation DraftOrderCreate($input: DraftOrderInput!) {
@@ -114,29 +125,42 @@ async function createAndCompleteDraftOrder(
         ...(options?.shopifyCustomerId
           ? { customerId: options.shopifyCustomerId }
           : {}),
-        note: buildDraftOrderNote(paymentIntentId, lineItems),
-        ...(membershipDiscountAmount > 0
-          ? {
-              tags: ["membership-pricing"],
-              customAttributes: [
-                { key: "pricing_type", value: "membership" },
-                {
-                  key: "membership_discount_total",
-                  value: membershipDiscountAmount.toFixed(2),
-                },
-              ],
-            }
-          : {}),
+        note: buildDraftOrderNote(paymentIntentId, lineItems, {
+          voucherDiscountAmount,
+          discountCodes,
+        }),
+        ...((membershipDiscountAmount > 0 || voucherDiscountAmount > 0) && {
+          tags: [
+            ...(membershipDiscountAmount > 0 ? ["membership-pricing"] : []),
+            ...(voucherDiscountAmount > 0 ? ["promo-code"] : []),
+          ],
+          customAttributes: [
+            ...(membershipDiscountAmount > 0
+              ? [
+                  { key: "pricing_type", value: "membership" },
+                  {
+                    key: "membership_discount_total",
+                    value: membershipDiscountAmount.toFixed(2),
+                  },
+                ]
+              : []),
+            ...(voucherDiscountAmount > 0
+              ? [
+                  {
+                    key: "voucher_discount_total",
+                    value: voucherDiscountAmount.toFixed(2),
+                  },
+                  {
+                    key: "discount_codes",
+                    value: discountCodes.join(", "),
+                  },
+                ]
+              : []),
+          ],
+        }),
         lineItems: lineItems.map((item) => buildDraftOrderLineItemInput(item)),
-        ...(membershipDiscountAmount > 0 && !hasLineDiscounts
-          ? {
-              appliedDiscount: {
-                title: "Membership pricing",
-                description: "Active membership member discount",
-                value: membershipDiscountAmount,
-                valueType: "FIXED_AMOUNT",
-              },
-            }
+        ...(orderLevelAppliedDiscount
+          ? { appliedDiscount: orderLevelAppliedDiscount }
           : {}),
         shippingAddress: mailingAddress(shipping),
         billingAddress: mailingAddress(shipping),
@@ -261,6 +285,20 @@ export async function fulfillStripePayment(
     const membershipDiscountAmount = Number(
       paymentIntent.metadata.membership_discount_amount ?? "0",
     );
+    const voucherDiscountAmount = Number(
+      paymentIntent.metadata.voucher_discount_amount ?? "0",
+    );
+    let discountCodes: string[] = [];
+    try {
+      const parsed = JSON.parse(
+        paymentIntent.metadata.discount_codes ?? "[]",
+      ) as unknown;
+      if (Array.isArray(parsed)) {
+        discountCodes = parsed.filter((code) => typeof code === "string");
+      }
+    } catch {
+      discountCodes = [];
+    }
 
     const result = await createAndCompleteDraftOrder(
       shipping,
@@ -272,6 +310,10 @@ export async function fulfillStripePayment(
         membershipDiscountAmount: Number.isFinite(membershipDiscountAmount)
           ? membershipDiscountAmount
           : 0,
+        voucherDiscountAmount: Number.isFinite(voucherDiscountAmount)
+          ? voucherDiscountAmount
+          : 0,
+        discountCodes,
       },
     );
 

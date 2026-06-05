@@ -66,6 +66,10 @@ export function buildDraftOrderLineItemInput(item: CheckoutLineItemMeta) {
 export function buildDraftOrderNote(
   paymentIntentId: string,
   lineItems: CheckoutLineItemMeta[],
+  options?: {
+    voucherDiscountAmount?: number;
+    discountCodes?: string[];
+  },
 ): string {
   const savings = totalMembershipDiscountFromLines(lineItems);
   let note = `Paid via Stripe PaymentIntent ${paymentIntentId}`;
@@ -74,5 +78,57 @@ export function buildDraftOrderNote(
     note += `\n${MEMBERSHIP_PRICING_DISCOUNT_TITLE}: $${savings.toFixed(2)} total savings.`;
   }
 
+  const voucherDiscountAmount = options?.voucherDiscountAmount ?? 0;
+  if (voucherDiscountAmount > 0) {
+    const codes = options?.discountCodes?.length
+      ? options.discountCodes.join(", ")
+      : "promo";
+    note += `\nPromo (${codes}): $${voucherDiscountAmount.toFixed(2)} total savings.`;
+  }
+
   return note;
+}
+
+export function buildOrderLevelAppliedDiscount(options: {
+  membershipDiscountAmount: number;
+  voucherDiscountAmount: number;
+  discountCodes: string[];
+  hasLineDiscounts: boolean;
+}) {
+  const parts: Array<{ title: string; amount: number }> = [];
+
+  if (!options.hasLineDiscounts && options.membershipDiscountAmount > 0) {
+    parts.push({
+      title: MEMBERSHIP_PRICING_DISCOUNT_TITLE,
+      amount: options.membershipDiscountAmount,
+    });
+  }
+
+  if (options.voucherDiscountAmount > 0) {
+    const codeLabel = options.discountCodes.length
+      ? options.discountCodes.join(", ")
+      : "Promo";
+    parts.push({
+      title: `Promo: ${codeLabel}`,
+      amount: options.voucherDiscountAmount,
+    });
+  }
+
+  if (parts.length === 0) {
+    return undefined;
+  }
+
+  const total = parts.reduce((sum, part) => sum + part.amount, 0);
+
+  return {
+    title: parts.length === 1 ? parts[0].title : "Order discounts",
+    description:
+      parts.length === 1
+        ? parts[0].title
+        : parts
+            .map((part) => `${part.title}: $${part.amount.toFixed(2)}`)
+            .join("; "),
+    value: Math.round(total * 100) / 100,
+    valueType: "FIXED_AMOUNT" as const,
+  };
 }

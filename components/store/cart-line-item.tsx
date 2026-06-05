@@ -5,6 +5,7 @@ import {
   updateCartLineAction,
 } from "@/app/store/actions/cart";
 import type { CartLine } from "@/lib/shopify/cart";
+import { lineDiscountBySource } from "@/lib/shopify/cart-discounts";
 import { formatPrice } from "@/lib/shopify/products";
 
 function lineDiscountTotal(line: CartLine): number {
@@ -19,6 +20,8 @@ export function CartLineItem({ line }: { line: CartLine }) {
   const lineSubtotal = Number(line.cost.subtotalAmount.amount);
   const lineTotal = Number(line.cost.totalAmount.amount);
   const discountTotal = lineDiscountTotal(line);
+  const membershipDiscount = lineDiscountBySource(line, "automatic");
+  const voucherDiscount = lineDiscountBySource(line, "code");
 
   return (
     <li className="flex gap-4 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
@@ -61,11 +64,24 @@ export function CartLineItem({ line }: { line: CartLine }) {
             )}{" "}
             each
           </p>
-          {discountTotal > 0 ? (
+          {membershipDiscount > 0 ? (
             <p className="text-sm text-emerald-700 dark:text-emerald-400">
               Membership discount: -
               {formatPrice(
-                String(discountTotal),
+                membershipDiscount.toFixed(2),
+                line.cost.totalAmount.currencyCode,
+              )}
+            </p>
+          ) : null}
+          {voucherDiscount > 0 ? (
+            <p className="text-sm text-emerald-700 dark:text-emerald-400">
+              {line.discountAllocations
+                .filter((allocation) => allocation.source === "code")
+                .map((allocation) => allocation.code ?? allocation.title)
+                .join(", ") || "Promo"}
+              : -
+              {formatPrice(
+                voucherDiscount.toFixed(2),
                 line.cost.totalAmount.currencyCode,
               )}
             </p>

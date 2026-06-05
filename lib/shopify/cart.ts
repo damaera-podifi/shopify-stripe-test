@@ -19,9 +19,16 @@ export type CartMoney = {
   currencyCode: string;
 };
 
+export type CartDiscountCode = {
+  code: string;
+  applicable: boolean;
+};
+
 export type CartDiscountAllocation = {
   discountedAmount: CartMoney;
   title: string;
+  source: "automatic" | "code";
+  code?: string;
 };
 
 export type CartLine = {
@@ -53,6 +60,9 @@ export type Cart = {
     subtotalAmount: CartMoney;
     totalAmount: CartMoney;
   };
+  discountCodes: CartDiscountCode[];
+  /** Order-level and other cart-wide discount allocations (e.g. order discount codes). */
+  cartDiscountAllocations: CartDiscountAllocation[];
   discountTotal: CartMoney | null;
   lines: CartLine[];
 };
@@ -78,6 +88,10 @@ const CART_FIELDS = `
   id
   checkoutUrl
   totalQuantity
+  discountCodes {
+    code
+    applicable
+  }
   cost {
     subtotalAmount {
       amount
@@ -86,6 +100,18 @@ const CART_FIELDS = `
     totalAmount {
       amount
       currencyCode
+    }
+  }
+  discountAllocations {
+    discountedAmount {
+      amount
+      currencyCode
+    }
+    ... on CartAutomaticDiscountAllocation {
+      title
+    }
+    ... on CartCodeDiscountAllocation {
+      code
     }
   }
   lines(first: 50) {
@@ -151,7 +177,9 @@ type CartPayload = {
   id: string;
   checkoutUrl: string;
   totalQuantity: number;
+  discountCodes?: CartDiscountCode[];
   cost: Cart["cost"];
+  discountAllocations?: CartLinePayload["discountAllocations"];
   lines?: { edges: Array<{ node: CartLinePayload }> };
 };
 
@@ -161,6 +189,8 @@ function normalizeDiscountAllocations(
   return allocations.map((allocation) => ({
     discountedAmount: allocation.discountedAmount,
     title: allocation.title ?? allocation.code ?? "Discount",
+    source: allocation.code ? ("code" as const) : ("automatic" as const),
+    ...(allocation.code ? { code: allocation.code } : {}),
   }));
 }
 
@@ -175,6 +205,10 @@ function normalizeCart(cart: CartPayload | null | undefined): Cart | null {
     id: cart.id,
     checkoutUrl: cart.checkoutUrl,
     totalQuantity: cart.totalQuantity,
+    discountCodes: cart.discountCodes ?? [],
+    cartDiscountAllocations: normalizeDiscountAllocations(
+      cart.discountAllocations ?? [],
+    ),
     cost: cart.cost,
     discountTotal:
       discountAmount > 0
@@ -534,4 +568,76 @@ export async function removeCartLine(lineId: string): Promise<Cart | null> {
   }
 
   return finalizeCartMutation(data.cartLinesRemove.cart);
+}
+
+export type CartDiscountWarning = {
+  code: string;
+  message: string;
+};
+
+export type CartDiscountUpdateResult = {
+  cart: Cart;
+  warnings: CartDiscountWarning[];
+};
+
+export async function updateCartDiscountCodes(
+  discountCodes: string[],
+): Promise<CartDiscountUpdateResult> {
+  const cartId = await getCartIdFromCookie();
+  if (!cartId) {
+    throw new Error("No cart found");
+  }
+
+  const mutation = `#graphql
+    mutation CartDiscountCodesUpdate($cartId: ID!, $discountCodes: [String!]) {
+      cartDiscountCodesUpdate(cartId: $cartId, discountCodes: $discountCodes) {
+        cart {
+          ${CART_FIELDS}
+        }
+        userErrors {
+          message
+        }
+        warnings {
+          code
+          message
+        }
+      }
+    }
+  `;
+
+  const data = await storefrontMutation<{
+    cartDiscountCodesUpdate: {
+      cart: CartPayload | null;
+      userErrors: Array<{ message: string }>;
+      warnings: CartDiscountWarning[];
+    };
+  }>(mutation, {
+    cartId,
+    discountCodes,
+  });
+
+  const error = getUserErrors(data.cartDiscountCodesUpdate.userErrors);
+  if (error) throw new Error(error);
+
+  const cart = await finalizeCartMutation(data.cartDiscountCodesUpdate.cart);
+
+  return {
+    cart,
+    warnings: data.cartDiscountCodesUpdate.warnings ?? [],
+  };
+}
+
+export async function applyCartDiscountCode(
+  code: string,
+): Promise<CartDiscountUpdateResult> {
+  const trimmed = code.trim();
+  if (!trimmed) {
+    throw new Error("Enter a discount code");
+  }
+
+  return updateCartDiscountCodes([trimmed]);
+}
+
+export async function clearCartDiscountCodes(): Promise<CartDiscountUpdateResult> {
+  return updateCartDiscountCodes([]);
 }

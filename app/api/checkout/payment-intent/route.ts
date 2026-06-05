@@ -4,6 +4,8 @@ import { createUserIdFromEmail } from "@/lib/auth/user-id";
 import {
   buildCheckoutLineItemsFromCart,
   computeMembershipDiscountAmount,
+  computeVoucherDiscountAmount,
+  getApplicableVoucherCodes,
 } from "@/lib/checkout/cart-checkout";
 import { parseShippingFromBody } from "@/lib/checkout/validate-shipping";
 import { getCart } from "@/lib/shopify/cart";
@@ -42,6 +44,8 @@ export async function POST(request: Request) {
 
     const lineItems = buildCheckoutLineItemsFromCart(cart);
     const membershipDiscountAmount = computeMembershipDiscountAmount(cart);
+    const voucherDiscountAmount = computeVoucherDiscountAmount(cart);
+    const discountCodes = getApplicableVoucherCodes(cart);
 
     const session = await getStoreSession();
     const appUserId =
@@ -76,6 +80,8 @@ export async function POST(request: Request) {
         app_user_id: appUserId,
         is_membership_active: session?.isMembershipActive ? "true" : "false",
         membership_discount_amount: membershipDiscountAmount.toFixed(2),
+        voucher_discount_amount: voucherDiscountAmount.toFixed(2),
+        discount_codes: JSON.stringify(discountCodes),
         shopify_customer_id: shopifyCustomerId,
       },
     });
