@@ -35,6 +35,13 @@ export type StoreProduct = {
   variants: StoreProductVariant[];
 };
 
+export const STORE_PRODUCTS_PAGE_SIZE = 24;
+
+export type StoreProductsPageInfo = {
+  hasNextPage: boolean;
+  endCursor: string | null;
+};
+
 export const PRODUCT_TYPE_FILTERS = [
   { label: "All", value: null },
   { label: "Test Kits", value: "Test Kit" },
@@ -126,6 +133,7 @@ type ProductsQueryResult = {
     primaryDomain: { url: string };
   };
   products: {
+    pageInfo: StoreProductsPageInfo;
     edges: Array<{ node: ProductListNode }>;
   };
 };
@@ -148,14 +156,18 @@ type ProductQueryResult = {
 };
 
 const PRODUCTS_QUERY = `#graphql
-  query StoreProducts($first: Int!, $query: String) {
+  query StoreProducts($first: Int!, $after: String, $query: String) {
     shop {
       name
       primaryDomain {
         url
       }
     }
-    products(first: $first, query: $query) {
+    products(first: $first, after: $after, query: $query) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
       edges {
         node {
           ${PRODUCT_CARD_FIELDS}
@@ -191,41 +203,52 @@ function normalizeProductDetail(
   };
 }
 
+function normalizeProductListNode(node: ProductListNode): StoreProduct {
+  const variant = node.variants.edges[0]?.node;
+  const price = node.priceRange.minVariantPrice;
+
+  return {
+    ...node,
+    descriptionHtml: "",
+    images: node.featuredImage ? [node.featuredImage] : [],
+    variants: variant
+      ? [
+          {
+            id: variant.id,
+            title: "Default Title",
+            availableForSale: variant.availableForSale,
+            price,
+          },
+        ]
+      : [],
+  };
+}
+
 export async function getStoreProducts(options?: {
   first?: number;
+  after?: string | null;
   productType?: string | null;
 }) {
-  const first = options?.first ?? 50;
+  const first = Math.min(
+    Math.max(options?.first ?? STORE_PRODUCTS_PAGE_SIZE, 1),
+    250,
+  );
+  const after = options?.after ?? null;
   const productType = options?.productType ?? null;
 
   const data = await storefrontQuery<ProductsQueryResult>(PRODUCTS_QUERY, {
     first,
+    after,
     query: productTypeSearchQuery(productType),
   });
 
   return {
     shopName: data.shop.name,
     shopUrl: data.shop.primaryDomain.url,
-    products: data.products.edges.map((edge) => {
-      const variant = edge.node.variants.edges[0]?.node;
-      const price = edge.node.priceRange.minVariantPrice;
-
-      return {
-        ...edge.node,
-        descriptionHtml: "",
-        images: edge.node.featuredImage ? [edge.node.featuredImage] : [],
-        variants: variant
-          ? [
-              {
-                id: variant.id,
-                title: "Default Title",
-                availableForSale: variant.availableForSale,
-                price,
-              },
-            ]
-          : [],
-      };
-    }),
+    products: data.products.edges.map((edge) =>
+      normalizeProductListNode(edge.node),
+    ),
+    pageInfo: data.products.pageInfo,
     activeProductType: productType,
   };
 }
