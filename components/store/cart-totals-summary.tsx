@@ -5,20 +5,31 @@ import {
   computeVoucherDiscountAmount,
   getVoucherDiscountLabel,
 } from "@/lib/shopify/cart-discounts";
+import { computeCartTaxAmount } from "@/lib/shopify/cart-tax";
 import { formatPrice } from "@/lib/shopify/products";
 
 export function CartTotalsSummary({
   cart,
   showMembershipNote = false,
+  showTaxCalculatedAtCheckout = false,
+  taxAmountOverride,
+  totalAmountOverride,
 }: {
   cart: Cart;
   showMembershipNote?: boolean;
+  showTaxCalculatedAtCheckout?: boolean;
+  taxAmountOverride?: number | null;
+  totalAmountOverride?: string | null;
 }) {
   const membershipDiscount = computeMembershipDiscountAmount(cart);
   const voucherDiscount = computeVoucherDiscountAmount(cart);
   const voucherLabel = getVoucherDiscountLabel(cart);
   const currencyCode = cart.cost.totalAmount.currencyCode;
   const displaySubtotal = computeCartDisplaySubtotal(cart);
+  const taxAmount =
+    taxAmountOverride ?? computeCartTaxAmount(cart);
+  const totalAmount =
+    totalAmountOverride ?? cart.cost.totalAmount.amount;
 
   return (
     <div className="space-y-2">
@@ -38,6 +49,16 @@ export function CartTotalsSummary({
           <span>-{formatPrice(voucherDiscount.toFixed(2), currencyCode)}</span>
         </div>
       ) : null}
+      {taxAmount > 0.001 ? (
+        <div className="flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400">
+          <span>Tax</span>
+          <span>{formatPrice(taxAmount.toFixed(2), currencyCode)}</span>
+        </div>
+      ) : showTaxCalculatedAtCheckout ? (
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          Tax calculated at checkout based on your shipping address.
+        </p>
+      ) : null}
       {membershipDiscount <= 0 && voucherDiscount <= 0 && showMembershipNote ? (
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           Sign in with an active membership to unlock member pricing.
@@ -46,10 +67,7 @@ export function CartTotalsSummary({
       <div className="flex items-center justify-between text-lg font-semibold text-zinc-900 dark:text-zinc-50">
         <span>Total ({cart.totalQuantity} items)</span>
         <span className="text-emerald-700 dark:text-emerald-400">
-          {formatPrice(
-            cart.cost.totalAmount.amount,
-            cart.cost.totalAmount.currencyCode,
-          )}
+          {formatPrice(totalAmount, currencyCode)}
         </span>
       </div>
     </div>

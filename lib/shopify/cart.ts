@@ -59,6 +59,8 @@ export type Cart = {
   cost: {
     subtotalAmount: CartMoney;
     totalAmount: CartMoney;
+    totalTaxAmount?: CartMoney | null;
+    totalAmountEstimated?: boolean;
   };
   discountCodes: CartDiscountCode[];
   /** Order-level and other cart-wide discount allocations (e.g. order discount codes). */
@@ -81,6 +83,11 @@ const CART_SUMMARY_FIELDS = `
       amount
       currencyCode
     }
+    totalTaxAmount {
+      amount
+      currencyCode
+    }
+    totalAmountEstimated
   }
 `;
 
@@ -101,6 +108,11 @@ const CART_FIELDS = `
       amount
       currencyCode
     }
+    totalTaxAmount {
+      amount
+      currencyCode
+    }
+    totalAmountEstimated
   }
   discountAllocations {
     discountedAmount {
@@ -178,7 +190,12 @@ type CartPayload = {
   checkoutUrl: string;
   totalQuantity: number;
   discountCodes?: CartDiscountCode[];
-  cost: Cart["cost"];
+  cost: {
+    subtotalAmount: CartMoney;
+    totalAmount: CartMoney;
+    totalTaxAmount?: CartMoney | null;
+    totalAmountEstimated?: boolean;
+  };
   discountAllocations?: CartLinePayload["discountAllocations"];
   lines?: { edges: Array<{ node: CartLinePayload }> };
 };
@@ -640,4 +657,186 @@ export async function applyCartDiscountCode(
 
 export async function clearCartDiscountCodes(): Promise<CartDiscountUpdateResult> {
   return updateCartDiscountCodes([]);
+}
+
+export type CartDeliveryAddressInput = {
+  email: string;
+  firstName: string;
+  lastName: string;
+  address1: string;
+  address2?: string;
+  city: string;
+  province: string;
+  zip: string;
+  country: string;
+};
+
+function selectableDeliveryAddressInput(address: CartDeliveryAddressInput) {
+  return {
+    selected: true,
+    oneTimeUse: true,
+    address: {
+      deliveryAddress: {
+        firstName: address.firstName,
+        lastName: address.lastName,
+        address1: address.address1,
+        address2: address.address2 || undefined,
+        city: address.city,
+        provinceCode: address.province,
+        countryCode: address.country,
+        zip: address.zip,
+      },
+    },
+  };
+}
+
+async function fetchCartDeliveryAddressIds(
+  cartId: string,
+): Promise<Array<{ id: string; selected: boolean }>> {
+  const query = `#graphql
+    query CartDeliveryAddresses($cartId: ID!) {
+      cart(id: $cartId) {
+        delivery {
+          addresses {
+            id
+            selected
+          }
+        }
+      }
+    }
+  `;
+
+  const data = await storefrontQuery<{
+    cart: {
+      delivery: {
+        addresses: Array<{ id: string; selected: boolean }>;
+      } | null;
+    } | null;
+  }>(query, { cartId }, { cache: "no-store" });
+
+  return data.cart?.delivery?.addresses ?? [];
+}
+
+/** Apply shipping address so Shopify can estimate tax on the cart. */
+export async function applyCartDeliveryAddress(
+  address: CartDeliveryAddressInput,
+): Promise<Cart> {
+  const cartId = await getCartIdFromCookie();
+  if (!cartId) {
+    throw new Error("No cart found");
+  }
+
+  const identityMutation = `#graphql
+    mutation CartBuyerIdentityUpdate($cartId: ID!, $buyerIdentity: CartBuyerIdentityInput!) {
+      cartBuyerIdentityUpdate(cartId: $cartId, buyerIdentity: $buyerIdentity) {
+        userErrors {
+          message
+        }
+      }
+    }
+  `;
+
+  const identityData = await storefrontMutation<{
+    cartBuyerIdentityUpdate: {
+      userErrors: Array<{ message: string }>;
+    };
+  }>(identityMutation, {
+    cartId,
+    buyerIdentity: {
+      email: address.email,
+      countryCode: address.country,
+    },
+  });
+
+  const identityErrors = identityData.cartBuyerIdentityUpdate.userErrors;
+  if (identityErrors.length) {
+    throw new Error(identityErrors.map((error) => error.message).join(", "));
+  }
+
+  const existingAddresses = await fetchCartDeliveryAddressIds(cartId);
+  const selectedAddress =
+    existingAddresses.find((entry) => entry.selected) ?? existingAddresses[0];
+
+  if (selectedAddress) {
+    const updateMutation = `#graphql
+      mutation CartDeliveryAddressesUpdate(
+        $cartId: ID!
+        $addresses: [CartSelectableAddressUpdateInput!]!
+      ) {
+        cartDeliveryAddressesUpdate(cartId: $cartId, addresses: $addresses) {
+          cart {
+            ${CART_FIELDS}
+          }
+          userErrors {
+            message
+          }
+        }
+      }
+    `;
+
+    const updateData = await storefrontMutation<{
+      cartDeliveryAddressesUpdate: {
+        cart: CartPayload | null;
+        userErrors: Array<{ message: string }>;
+      };
+    }>(updateMutation, {
+      cartId,
+      addresses: [
+        {
+          id: selectedAddress.id,
+          ...selectableDeliveryAddressInput(address),
+        },
+      ],
+    });
+
+    const updateErrors = updateData.cartDeliveryAddressesUpdate.userErrors;
+    if (updateErrors.length) {
+      throw new Error(updateErrors.map((error) => error.message).join(", "));
+    }
+
+    const cart = normalizeCart(updateData.cartDeliveryAddressesUpdate.cart);
+    if (!cart) {
+      throw new Error("Failed to update cart delivery address");
+    }
+
+    return cart;
+  }
+
+  const deliveryMutation = `#graphql
+    mutation CartDeliveryAddressesAdd(
+      $cartId: ID!
+      $addresses: [CartSelectableAddressInput!]!
+    ) {
+      cartDeliveryAddressesAdd(cartId: $cartId, addresses: $addresses) {
+        cart {
+          ${CART_FIELDS}
+        }
+        userErrors {
+          message
+        }
+      }
+    }
+  `;
+
+  const data = await storefrontMutation<{
+    cartDeliveryAddressesAdd: {
+      cart: CartPayload | null;
+      userErrors: Array<{ message: string }>;
+    };
+  }>(deliveryMutation, {
+    cartId,
+    addresses: [selectableDeliveryAddressInput(address)],
+  });
+
+  const errors = data.cartDeliveryAddressesAdd.userErrors;
+  if (errors.length) {
+    throw new Error(errors.map((error) => error.message).join(", "));
+  }
+
+  const cart = normalizeCart(data.cartDeliveryAddressesAdd.cart);
+  if (!cart) {
+    throw new Error("Failed to update cart delivery address");
+  }
+
+  return cart;
 }

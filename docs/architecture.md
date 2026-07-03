@@ -158,7 +158,7 @@ Created in `app/api/checkout/payment-intent/route.ts`:
 | `line_items` | JSON array of `{ variantId, quantity }` |
 | `shipping` | JSON `CheckoutShippingInput` (email, name, address) |
 
-Amount and currency come from the live cart total (`cart.cost.totalAmount`).
+Amount and currency come from **`calculateCheckoutTotals`** (Shopify Admin `draftOrderCalculate`): **subtotal after discounts + tax**. See [checkout-tax.md](./checkout-tax.md). Example: $39.99 + $3.90 tax → **$43.89** charged in Stripe.
 
 ### Fulfillment (`lib/checkout/fulfillment.ts`)
 

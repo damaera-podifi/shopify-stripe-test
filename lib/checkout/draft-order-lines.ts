@@ -4,6 +4,9 @@ export const MEMBERSHIP_PRICING_DISCOUNT_TITLE = "Membership pricing";
 export const MEMBERSHIP_PRICING_DISCOUNT_DESCRIPTION =
   "Active membership member discount";
 
+/** Checkout treats line prices as pre-tax; tax is added at payment. */
+export const CHECKOUT_TAXES_INCLUDED = false;
+
 export function lineMembershipDiscountAmount(
   item: CheckoutLineItemMeta,
 ): number {

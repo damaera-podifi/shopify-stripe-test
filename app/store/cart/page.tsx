@@ -51,6 +51,7 @@ export default async function CartPage() {
             <CartTotalsSummary
               cart={cart}
               showMembershipNote={!session}
+              showTaxCalculatedAtCheckout
             />
 
             <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">

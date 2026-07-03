@@ -7,8 +7,10 @@ import {
   computeVoucherDiscountAmount,
   getApplicableVoucherCodes,
 } from "@/lib/checkout/cart-checkout";
+import { calculateCheckoutTotals } from "@/lib/checkout/calculate-checkout-totals";
 import { parseShippingFromBody } from "@/lib/checkout/validate-shipping";
 import { getCart } from "@/lib/shopify/cart";
+import { computeCartPostDiscountSubtotal } from "@/lib/shopify/cart-tax";
 import { getStripe } from "@/lib/stripe/server";
 
 export async function POST(request: Request) {
@@ -33,13 +35,6 @@ export async function POST(request: Request) {
         { error: "Cart contains unavailable items" },
         { status: 400 },
       );
-    }
-
-    const amount = Math.round(
-      Number(cart.cost.totalAmount.amount) * 100,
-    );
-    if (!Number.isFinite(amount) || amount < 1) {
-      return NextResponse.json({ error: "Invalid cart total" }, { status: 400 });
     }
 
     const lineItems = buildCheckoutLineItemsFromCart(cart);
@@ -67,10 +62,28 @@ export async function POST(request: Request) {
       }
     }
 
+    const checkoutTotals = await calculateCheckoutTotals(
+      shippingResult,
+      lineItems,
+      {
+        shopifyCustomerId: shopifyCustomerId || undefined,
+        membershipDiscountAmount,
+        voucherDiscountAmount,
+        discountCodes,
+        postDiscountSubtotal: computeCartPostDiscountSubtotal(cart),
+      },
+    );
+
+    const amount = Math.round(Number(checkoutTotals.totalAmount) * 100);
+
+    if (!Number.isFinite(amount) || amount < 1) {
+      return NextResponse.json({ error: "Invalid cart total" }, { status: 400 });
+    }
+
     const stripe = getStripe();
     const paymentIntent = await stripe.paymentIntents.create({
       amount,
-      currency: cart.cost.totalAmount.currencyCode.toLowerCase(),
+      currency: checkoutTotals.currencyCode.toLowerCase(),
       automatic_payment_methods: { enabled: true },
       receipt_email: shippingResult.email,
       metadata: {
@@ -83,6 +96,7 @@ export async function POST(request: Request) {
         voucher_discount_amount: voucherDiscountAmount.toFixed(2),
         discount_codes: JSON.stringify(discountCodes),
         shopify_customer_id: shopifyCustomerId,
+        tax_amount: checkoutTotals.taxAmount,
       },
     });
 
@@ -93,7 +107,12 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ clientSecret: paymentIntent.client_secret });
+    return NextResponse.json({
+      clientSecret: paymentIntent.client_secret,
+      totalAmount: checkoutTotals.totalAmount,
+      taxAmount: checkoutTotals.taxAmount,
+      currencyCode: checkoutTotals.currencyCode,
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Checkout failed";
     return NextResponse.json({ error: message }, { status: 500 });

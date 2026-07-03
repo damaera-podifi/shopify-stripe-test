@@ -20,6 +20,11 @@ type CheckoutFormProps = {
   totalQuantity: number;
   disabled?: boolean;
   defaultShipping?: Partial<CheckoutShippingInput>;
+  onCheckoutTotals?: (totals: {
+    totalAmount: string;
+    taxAmount: string;
+    currencyCode: string;
+  }) => void;
 };
 
 const inputClassName =
@@ -242,8 +247,8 @@ function PaymentStep({
         </button>
       </div>
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        Paying for {totalQuantity} item{totalQuantity === 1 ? "" : "s"}. Taxes
-        and shipping may be reflected in Shopify order records.
+        Paying for {totalQuantity} item{totalQuantity === 1 ? "" : "s"} including
+        tax where applicable.
       </p>
     </form>
   );
@@ -268,6 +273,7 @@ export function CheckoutForm({
   totalQuantity,
   disabled = false,
   defaultShipping,
+  onCheckoutTotals,
 }: CheckoutFormProps) {
   const stripePromise = useMemo(
     () => loadStripe(publishableKey),
@@ -279,6 +285,7 @@ export function CheckoutForm({
     ...defaultShipping,
   }));
   const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [checkoutTotalAmount, setCheckoutTotalAmount] = useState(totalAmount);
   const [error, setError] = useState<string | null>(null);
   const [loadingIntent, setLoadingIntent] = useState(false);
 
@@ -296,6 +303,9 @@ export function CheckoutForm({
     });
     const data = (await res.json()) as {
       clientSecret?: string;
+      totalAmount?: string;
+      taxAmount?: string;
+      currencyCode?: string;
       error?: string;
     };
 
@@ -304,6 +314,15 @@ export function CheckoutForm({
     if (!res.ok || !data.clientSecret) {
       setError(data.error ?? "Could not start checkout");
       return;
+    }
+
+    if (data.totalAmount) {
+      setCheckoutTotalAmount(data.totalAmount);
+      onCheckoutTotals?.({
+        totalAmount: data.totalAmount,
+        taxAmount: data.taxAmount ?? "0.00",
+        currencyCode: data.currencyCode ?? currencyCode,
+      });
     }
 
     setClientSecret(data.clientSecret);
@@ -363,10 +382,18 @@ export function CheckoutForm({
       </h2>
       <PaymentStep
         shipping={shipping}
-        totalAmount={totalAmount}
+        totalAmount={checkoutTotalAmount}
         currencyCode={currencyCode}
         totalQuantity={totalQuantity}
-        onBack={() => setClientSecret(null)}
+        onBack={() => {
+          setClientSecret(null);
+          setCheckoutTotalAmount(totalAmount);
+          onCheckoutTotals?.({
+            totalAmount,
+            taxAmount: "0.00",
+            currencyCode,
+          });
+        }}
       />
     </Elements>
   );

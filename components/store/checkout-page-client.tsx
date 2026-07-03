@@ -23,6 +23,10 @@ export function CheckoutPageClient({
   hasUnavailableItems,
 }: CheckoutPageClientProps) {
   const [cart, setCart] = useState(initialCart);
+  const [checkoutTaxAmount, setCheckoutTaxAmount] = useState<number | null>(null);
+  const [checkoutTotalAmount, setCheckoutTotalAmount] = useState<string | null>(
+    null,
+  );
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1fr_340px] lg:items-start">
@@ -40,6 +44,11 @@ export function CheckoutPageClient({
           totalQuantity={cart.totalQuantity}
           disabled={hasUnavailableItems}
           defaultShipping={defaultShipping}
+          onCheckoutTotals={({ totalAmount, taxAmount }) => {
+            const tax = Number(taxAmount);
+            setCheckoutTotalAmount(totalAmount);
+            setCheckoutTaxAmount(tax > 0.001 ? tax : null);
+          }}
         />
       </section>
 
@@ -53,7 +62,12 @@ export function CheckoutPageClient({
           ))}
         </ul>
         <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-          <CartTotalsSummary cart={cart} />
+          <CartTotalsSummary
+            cart={cart}
+            showTaxCalculatedAtCheckout
+            taxAmountOverride={checkoutTaxAmount}
+            totalAmountOverride={checkoutTotalAmount}
+          />
         </div>
         <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
           <DiscountCodeForm
