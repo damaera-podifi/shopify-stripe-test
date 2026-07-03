@@ -10,6 +10,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const cursor = searchParams.get("cursor");
+    const q = searchParams.get("q");
     const firstParam = searchParams.get("first");
     const first = firstParam
       ? Number.parseInt(firstParam, 10)
@@ -25,6 +26,7 @@ export async function GET(request: Request) {
     const data = await getStoreProducts({
       first,
       after: cursor,
+      search: q,
     });
 
     const session = await getStoreSession();

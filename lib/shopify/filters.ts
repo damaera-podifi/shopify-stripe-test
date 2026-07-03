@@ -255,9 +255,17 @@ export function buildFilterFacets(
   }));
 }
 
+export function parseProductSearch(
+  searchParams: Record<string, string | undefined>,
+): string | null {
+  const q = searchParams.q?.trim();
+  return q || null;
+}
+
 export function buildStoreSearchParams(
   active: ActiveFilters,
   toggle: { groupId: FilterGroupId; value: string },
+  options?: { q?: string | null },
 ): URLSearchParams {
   const next = { ...active };
   const current = next[toggle.groupId];
@@ -275,6 +283,30 @@ export function buildStoreSearchParams(
         next[group.id].map((value) => encodeURIComponent(value)).join(","),
       );
     }
+  }
+  const q = options?.q?.trim();
+  if (q) {
+    params.set("q", q);
+  }
+  return params;
+}
+
+export function buildStoreQueryParams(
+  active: ActiveFilters,
+  options?: { q?: string | null },
+): URLSearchParams {
+  const params = new URLSearchParams();
+  for (const group of FILTER_GROUPS) {
+    if (active[group.id].length > 0) {
+      params.set(
+        group.id,
+        active[group.id].map((value) => encodeURIComponent(value)).join(","),
+      );
+    }
+  }
+  const q = options?.q?.trim();
+  if (q) {
+    params.set("q", q);
   }
   return params;
 }

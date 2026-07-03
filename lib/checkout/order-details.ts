@@ -1,5 +1,6 @@
 import { adminGraphql } from "@/lib/shopify/admin";
 import { APP_USER_ID_KEY, APP_USER_ID_NAMESPACE } from "@/lib/auth/user-id";
+import { findShopifyCustomerByEmail } from "@/lib/shopify/membership";
 import { fulfillStripePayment } from "./fulfillment";
 
 export type OrderLineItemDetails = {
@@ -261,7 +262,14 @@ async function fetchOrderReturns(
     const data = await adminGraphql<AdminOrderReturnsResponse>(
       ORDER_RETURNS_QUERY,
       { id: shopifyOrderId },
-      { operation: "orderReturns" },
+      {
+        operation: "orderReturns",
+        // The `returns` field requires the `read_returns` access scope.
+        // Stores that haven't granted it surface ACCESS_DENIED, which we
+        // already handle by rendering the order details without return
+        // history, so this is not a real error.
+        expectedErrorCodes: ["ACCESS_DENIED"],
+      },
     );
 
     return (
@@ -332,59 +340,51 @@ export async function getOrderDetailsByPaymentIntent(
   return getShopifyOrderDetails(fulfillment.shopifyOrderId);
 }
 
-type AdminOrdersListResponse = {
-  orders: {
-    nodes: Array<{
-      id: string;
-      name: string;
-      createdAt: string;
-      displayFinancialStatus: string;
-      displayFulfillmentStatus: string;
-      totalPriceSet: {
-        shopMoney: {
-          amount: string;
-          currencyCode: string;
-        };
-      };
-    }>;
+type AdminOrderListNode = {
+  id: string;
+  name: string;
+  email: string | null;
+  createdAt: string;
+  displayFinancialStatus: string;
+  displayFulfillmentStatus: string;
+  metafield: { value: string } | null;
+  totalPriceSet: {
+    shopMoney: {
+      amount: string;
+      currencyCode: string;
+    };
   };
 };
 
-const ORDERS_BY_USER_ID_QUERY = `#graphql
-  query OrdersByUserId($query: String!, $first: Int!) {
-    orders(first: $first, query: $query, sortKey: CREATED_AT, reverse: true) {
-      nodes {
-        id
-        name
-        createdAt
-        displayFinancialStatus
-        displayFulfillmentStatus
-        totalPriceSet {
-          shopMoney {
-            amount
-            currencyCode
-          }
-        }
-      }
+type AdminOrdersListResponse = {
+  orders: {
+    nodes: AdminOrderListNode[];
+  };
+};
+
+const ORDER_LIST_NODES_SELECTION = `
+  id
+  name
+  email
+  createdAt
+  displayFinancialStatus
+  displayFulfillmentStatus
+  metafield(namespace: "${APP_USER_ID_NAMESPACE}", key: "${APP_USER_ID_KEY}") {
+    value
+  }
+  totalPriceSet {
+    shopMoney {
+      amount
+      currencyCode
     }
   }
 `;
 
-const ORDERS_BY_EMAIL_QUERY = `#graphql
-  query OrdersByEmail($query: String!, $first: Int!) {
+const ORDERS_LIST_QUERY = `#graphql
+  query OrdersList($query: String!, $first: Int!) {
     orders(first: $first, query: $query, sortKey: CREATED_AT, reverse: true) {
       nodes {
-        id
-        name
-        createdAt
-        displayFinancialStatus
-        displayFulfillmentStatus
-        totalPriceSet {
-          shopMoney {
-            amount
-            currencyCode
-          }
-        }
+        ${ORDER_LIST_NODES_SELECTION}
       }
     }
   }
@@ -394,9 +394,33 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-function mapOrderListItem(
-  order: AdminOrdersListResponse["orders"]["nodes"][number],
-): OrderListItem {
+function escapeShopifySearchValue(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function shopifyGidToLegacyId(gid: string): string | null {
+  const match = gid.match(/\/(\d+)$/);
+  return match ? match[1] : null;
+}
+
+function orderBelongsToUser(
+  order: Pick<AdminOrderListNode, "email" | "metafield">,
+  userId: string,
+  loginEmail: string,
+): boolean {
+  const orderUserId = order.metafield?.value ?? null;
+  if (orderUserId) {
+    return orderUserId === userId;
+  }
+
+  if (!order.email) {
+    return false;
+  }
+
+  return normalizeEmail(order.email) === normalizeEmail(loginEmail);
+}
+
+function mapOrderListItem(order: AdminOrderListNode): OrderListItem {
   return {
     id: order.id,
     name: order.name,
@@ -407,6 +431,19 @@ function mapOrderListItem(
   };
 }
 
+async function listShopifyOrdersBySearchQuery(
+  query: string,
+  operation: string,
+): Promise<AdminOrderListNode[]> {
+  const data = await adminGraphql<AdminOrdersListResponse>(
+    ORDERS_LIST_QUERY,
+    { query, first: 50 },
+    { operation },
+  );
+
+  return data.orders.nodes;
+}
+
 export async function listShopifyOrdersByEmail(
   email: string,
 ): Promise<OrderListItem[]> {
@@ -415,45 +452,69 @@ export async function listShopifyOrdersByEmail(
     return [];
   }
 
-  const data = await adminGraphql<AdminOrdersListResponse>(
-    ORDERS_BY_EMAIL_QUERY,
-    {
-      query: `email:${normalizedEmail}`,
-      first: 20,
-    },
-    { operation: "ordersByEmail" },
+  const nodes = await listShopifyOrdersBySearchQuery(
+    `email:${escapeShopifySearchValue(normalizedEmail)}`,
+    "ordersByEmail",
   );
 
-  return data.orders.nodes.map(mapOrderListItem);
+  return nodes.map(mapOrderListItem);
 }
 
 async function listShopifyOrdersByUserIdMetafield(
   userId: string,
-): Promise<OrderListItem[]> {
-  const data = await adminGraphql<AdminOrdersListResponse>(
-    ORDERS_BY_USER_ID_QUERY,
-    {
-      query: `metafields.${APP_USER_ID_NAMESPACE}.${APP_USER_ID_KEY}:${userId}`,
-      first: 20,
-    },
-    { operation: "ordersByUserId" },
+): Promise<AdminOrderListNode[]> {
+  return listShopifyOrdersBySearchQuery(
+    `metafields.${APP_USER_ID_NAMESPACE}.${APP_USER_ID_KEY}:${userId}`,
+    "ordersByUserId",
   );
+}
 
-  return data.orders.nodes.map(mapOrderListItem);
+async function listShopifyOrdersByCustomerId(
+  shopifyCustomerGid: string,
+): Promise<AdminOrderListNode[]> {
+  const legacyId = shopifyGidToLegacyId(shopifyCustomerGid);
+  if (!legacyId) {
+    return [];
+  }
+
+  return listShopifyOrdersBySearchQuery(
+    `customer_id:${legacyId}`,
+    "ordersByCustomerId",
+  );
 }
 
 export async function listShopifyOrdersForUser(
   userId: string,
   loginEmail: string,
 ): Promise<OrderListItem[]> {
-  const [byUserId, byEmail] = await Promise.all([
-    listShopifyOrdersByUserIdMetafield(userId).catch(() => [] as OrderListItem[]),
-    listShopifyOrdersByEmail(loginEmail),
+  const normalizedEmail = normalizeEmail(loginEmail);
+  const customer = normalizedEmail
+    ? await findShopifyCustomerByEmail(normalizedEmail).catch(() => null)
+    : null;
+
+  const [byUserId, byCustomerId, byEmail] = await Promise.all([
+    listShopifyOrdersByUserIdMetafield(userId).catch(
+      () => [] as AdminOrderListNode[],
+    ),
+    customer
+      ? listShopifyOrdersByCustomerId(customer.id).catch(
+          () => [] as AdminOrderListNode[],
+        )
+      : Promise.resolve([] as AdminOrderListNode[]),
+    normalizedEmail
+      ? listShopifyOrdersBySearchQuery(
+          `email:${escapeShopifySearchValue(normalizedEmail)}`,
+          "ordersByEmail",
+        ).catch(() => [] as AdminOrderListNode[])
+      : Promise.resolve([] as AdminOrderListNode[]),
   ]);
 
   const merged = new Map<string, OrderListItem>();
-  for (const order of [...byUserId, ...byEmail]) {
-    merged.set(order.id, order);
+  for (const order of [...byUserId, ...byCustomerId, ...byEmail]) {
+    if (!orderBelongsToUser(order, userId, loginEmail)) {
+      continue;
+    }
+    merged.set(order.id, mapOrderListItem(order));
   }
 
   return [...merged.values()].sort(
@@ -474,6 +535,10 @@ export async function getShopifyOrderDetailsForUser(
 
   if (order.userId === userId) {
     return order;
+  }
+
+  if (order.userId) {
+    return null;
   }
 
   if (

@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ProductCard } from "@/components/store/product-card";
+import { ProductSearch } from "@/components/store/product-search";
 import { StoreFilters } from "@/components/store/store-filters";
 import {
   buildFilterFacets,
@@ -9,17 +10,19 @@ import {
   hasActiveFilters,
   type ActiveFilters,
 } from "@/lib/shopify/filters";
-import type { VariantMembershipPrice } from "@/lib/shopify/member-pricing";
-import type {
-  StoreProduct,
-  StoreProductsPageInfo,
+import {
+  filterProductsBySearch,
+  type StoreProduct,
+  type StoreProductsPageInfo,
 } from "@/lib/shopify/products";
+import type { VariantMembershipPrice } from "@/lib/shopify/member-pricing";
 
 type StoreBrowseProps = {
   initialProducts: StoreProduct[];
   initialPageInfo: StoreProductsPageInfo;
   initialMemberPrices: Record<string, VariantMembershipPrice>;
   active: ActiveFilters;
+  searchQuery?: string | null;
   isMember?: boolean;
 };
 
@@ -54,6 +57,7 @@ export function StoreBrowse({
   initialPageInfo,
   initialMemberPrices,
   active,
+  searchQuery = null,
   isMember,
 }: StoreBrowseProps) {
   const [products, setProducts] = useState(initialProducts);
@@ -65,15 +69,22 @@ export function StoreBrowse({
   const [error, setError] = useState<string | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  const filteredProducts = useMemo(
-    () => filterStoreProducts(products, active),
-    [products, active],
-  );
-  const facets = useMemo(
-    () => buildFilterFacets(products, active),
-    [products, active],
-  );
+  const filteredProducts = useMemo(() => {
+    const searched = filterProductsBySearch(products, searchQuery);
+    return filterStoreProducts(searched, active);
+  }, [products, active, searchQuery]);
+  const facets = useMemo(() => {
+    const searched = filterProductsBySearch(products, searchQuery);
+    return buildFilterFacets(searched, active);
+  }, [products, active, searchQuery]);
   const filtersActive = hasActiveFilters(active);
+  const searchActive = Boolean(searchQuery);
+
+  const resultsLabel = searchActive
+    ? `Results for “${searchQuery}”`
+    : filtersActive
+      ? "Filtered results"
+      : "All products";
 
   const loadMore = useCallback(async () => {
     if (loading || !pageInfo.hasNextPage || !pageInfo.endCursor) {
@@ -87,6 +98,9 @@ export function StoreBrowse({
       const params = new URLSearchParams({
         cursor: pageInfo.endCursor,
       });
+      if (searchQuery) {
+        params.set("q", searchQuery);
+      }
       const response = await fetch(`/api/store/products?${params.toString()}`);
 
       if (!response.ok) {
@@ -116,7 +130,7 @@ export function StoreBrowse({
     } finally {
       setLoading(false);
     }
-  }, [loading, pageInfo.endCursor, pageInfo.hasNextPage]);
+  }, [loading, pageInfo.endCursor, pageInfo.hasNextPage, searchQuery]);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
@@ -138,14 +152,19 @@ export function StoreBrowse({
   }, [loadMore, pageInfo.hasNextPage]);
 
   return (
-    <div className="flex flex-col gap-8 lg:flex-row lg:items-start">
-      <Suspense fallback={<FiltersSkeleton />}>
-        <StoreFilters facets={facets} active={active} />
+    <div className="flex flex-col gap-8">
+      <Suspense fallback={null}>
+        <ProductSearch />
       </Suspense>
 
-      <div className="min-w-0 flex-1">
+      <div className="flex flex-col gap-8 lg:flex-row lg:items-start">
+        <Suspense fallback={<FiltersSkeleton />}>
+          <StoreFilters facets={facets} active={active} />
+        </Suspense>
+
+        <div className="min-w-0 flex-1">
         <p className="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
-          {filtersActive ? "Filtered results" : "All products"}
+          {resultsLabel}
           {filteredProducts.length > 0
             ? ` · ${filteredProducts.length} product${filteredProducts.length === 1 ? "" : "s"}`
             : null}
@@ -155,14 +174,22 @@ export function StoreBrowse({
         {filteredProducts.length === 0 ? (
           <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-center dark:border-zinc-800 dark:bg-zinc-950">
             <p className="font-medium text-zinc-900 dark:text-zinc-50">
-              {pageInfo.hasNextPage
-                ? "No matches in loaded products yet"
-                : "No products match these filters"}
+              {searchActive
+                ? pageInfo.hasNextPage
+                  ? "No matches in loaded results yet"
+                  : `No products found for “${searchQuery}”`
+                : pageInfo.hasNextPage
+                  ? "No matches in loaded products yet"
+                  : "No products match these filters"}
             </p>
             <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              {pageInfo.hasNextPage
-                ? "Keep scrolling to load more products from the catalog."
-                : "Try removing a filter or browse all products."}
+              {searchActive
+                ? pageInfo.hasNextPage
+                  ? "Keep scrolling to load more matching products."
+                  : "Try a different search term or clear filters."
+                : pageInfo.hasNextPage
+                  ? "Keep scrolling to load more products from the catalog."
+                  : "Try removing a filter or browse all products."}
             </p>
           </div>
         ) : (
@@ -206,6 +233,7 @@ export function StoreBrowse({
             End of catalog for the current filters.
           </p>
         ) : null}
+        </div>
       </div>
     </div>
   );

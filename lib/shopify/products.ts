@@ -68,10 +68,11 @@ const PRODUCT_CARD_FIELDS = `
       currencyCode
     }
   }
-  variants(first: 1) {
+  variants(first: 20) {
     edges {
       node {
         id
+        title
         availableForSale
       }
     }
@@ -124,7 +125,11 @@ type ProductListNode = Omit<
   StoreProduct,
   "descriptionHtml" | "images" | "variants"
 > & {
-  variants: { edges: Array<{ node: { id: string; availableForSale: boolean } }> };
+  variants: {
+    edges: Array<{
+      node: { id: string; title: string; availableForSale: boolean };
+    }>;
+  };
 };
 
 type ProductsQueryResult = {
@@ -177,9 +182,88 @@ const PRODUCTS_QUERY = `#graphql
   }
 `;
 
-function productTypeSearchQuery(productType: string | null) {
+function normalizeSearchText(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function textIncludes(haystack: string, needle: string): boolean {
+  return haystack.toLowerCase().includes(needle);
+}
+
+export function filterProductsBySearch(
+  products: StoreProduct[],
+  search: string | null | undefined,
+): StoreProduct[] {
+  const query = normalizeSearchText(search ?? "");
+  if (!query) return products;
+
+  return products.filter((product) => {
+    if (textIncludes(product.title, query)) return true;
+    if (textIncludes(product.vendor, query)) return true;
+    if (textIncludes(product.productType, query)) return true;
+    if (textIncludes(product.description, query)) return true;
+    if (product.tags.some((tag) => textIncludes(tag, query))) return true;
+    if (
+      product.variants.some((variant) => textIncludes(variant.title, query))
+    ) {
+      return true;
+    }
+    return false;
+  });
+}
+
+function buildProductTypeQuery(productType: string | null) {
   if (!productType) return null;
   return `product_type:'${productType.replace(/'/g, "\\'")}'`;
+}
+
+function normalizeProductListNode(node: ProductListNode): StoreProduct {
+  const price = node.priceRange.minVariantPrice;
+  const variants = node.variants.edges.map((edge) => ({
+    id: edge.node.id,
+    title: edge.node.title,
+    availableForSale: edge.node.availableForSale,
+    price,
+  }));
+
+  return {
+    ...node,
+    descriptionHtml: "",
+    images: node.featuredImage ? [node.featuredImage] : [],
+    variants,
+  };
+}
+
+async function fetchAllStoreProducts(productType?: string | null) {
+  const products: StoreProduct[] = [];
+  let after: string | null = null;
+  let shopName = "";
+  let shopUrl = "";
+
+  while (true) {
+    const data: ProductsQueryResult = await storefrontQuery<ProductsQueryResult>(
+      PRODUCTS_QUERY,
+      {
+        first: 250,
+        after,
+        query: buildProductTypeQuery(productType ?? null),
+      },
+    );
+
+    shopName = data.shop.name;
+    shopUrl = data.shop.primaryDomain.url;
+    products.push(
+      ...data.products.edges.map((edge) => normalizeProductListNode(edge.node)),
+    );
+
+    if (!data.products.pageInfo.hasNextPage) {
+      break;
+    }
+
+    after = data.products.pageInfo.endCursor;
+  }
+
+  return { products, shopName, shopUrl };
 }
 
 function normalizeProductDetail(
@@ -203,31 +287,11 @@ function normalizeProductDetail(
   };
 }
 
-function normalizeProductListNode(node: ProductListNode): StoreProduct {
-  const variant = node.variants.edges[0]?.node;
-  const price = node.priceRange.minVariantPrice;
-
-  return {
-    ...node,
-    descriptionHtml: "",
-    images: node.featuredImage ? [node.featuredImage] : [],
-    variants: variant
-      ? [
-          {
-            id: variant.id,
-            title: "Default Title",
-            availableForSale: variant.availableForSale,
-            price,
-          },
-        ]
-      : [],
-  };
-}
-
 export async function getStoreProducts(options?: {
   first?: number;
   after?: string | null;
   productType?: string | null;
+  search?: string | null;
 }) {
   const first = Math.min(
     Math.max(options?.first ?? STORE_PRODUCTS_PAGE_SIZE, 1),
@@ -235,11 +299,25 @@ export async function getStoreProducts(options?: {
   );
   const after = options?.after ?? null;
   const productType = options?.productType ?? null;
+  const search = options?.search?.trim() || null;
+
+  if (search) {
+    const { products, shopName, shopUrl } = await fetchAllStoreProducts(productType);
+
+    return {
+      shopName,
+      shopUrl,
+      products: filterProductsBySearch(products, search),
+      pageInfo: { hasNextPage: false, endCursor: null },
+      activeProductType: productType,
+      activeSearch: search,
+    };
+  }
 
   const data = await storefrontQuery<ProductsQueryResult>(PRODUCTS_QUERY, {
     first,
     after,
-    query: productTypeSearchQuery(productType),
+    query: buildProductTypeQuery(productType),
   });
 
   return {
@@ -250,6 +328,7 @@ export async function getStoreProducts(options?: {
     ),
     pageInfo: data.products.pageInfo,
     activeProductType: productType,
+    activeSearch: null,
   };
 }
 

@@ -143,12 +143,18 @@ export function StoreFilters({ facets, active }: StoreFiltersProps) {
   });
 
   const buildHref = (groupId: FilterGroupId, value: string) => {
-    const params = buildStoreSearchParams(active, { groupId, value });
+    const q = searchParams.get("q");
+    const params = buildStoreSearchParams(
+      active,
+      { groupId, value },
+      { q },
+    );
     const query = params.toString();
     return query ? `${pathname}?${query}` : pathname;
   };
 
-  const clearHref = pathname;
+  const q = searchParams.get("q");
+  const clearHref = q ? `${pathname}?q=${encodeURIComponent(q)}` : pathname;
   const hasFilters = Object.values(active).some((values) => values.length > 0);
 
   return (

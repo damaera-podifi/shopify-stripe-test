@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CheckoutPageClient } from "@/components/store/checkout-page-client";
 import { getStoreSession } from "@/lib/auth/session";

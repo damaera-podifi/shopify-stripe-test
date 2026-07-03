@@ -3,6 +3,7 @@ import { StoreBrowse } from "@/components/store/store-browse";
 import { getStoreSession } from "@/lib/auth/session";
 import {
   parseActiveFilters,
+  parseProductSearch,
 } from "@/lib/shopify/filters";
 import { getStoreListingMembershipPrices } from "@/lib/shopify/member-pricing";
 import {
@@ -19,13 +20,17 @@ type StorePageProps = {
   searchParams: Promise<Record<string, string | undefined>>;
 };
 
-function activeFiltersKey(active: ReturnType<typeof parseActiveFilters>) {
-  return JSON.stringify(active);
+function browseStateKey(
+  active: ReturnType<typeof parseActiveFilters>,
+  searchQuery: string | null,
+) {
+  return JSON.stringify({ active, searchQuery });
 }
 
 export default async function StorePage({ searchParams }: StorePageProps) {
   const params = await searchParams;
   const active = parseActiveFilters(params);
+  const searchQuery = parseProductSearch(params);
   const session = await getStoreSession();
 
   let initialProducts: Awaited<ReturnType<typeof getStoreProducts>>["products"] =
@@ -37,7 +42,10 @@ export default async function StorePage({ searchParams }: StorePageProps) {
   let error: string | null = null;
 
   try {
-    const data = await getStoreProducts({ first: STORE_PRODUCTS_PAGE_SIZE });
+    const data = await getStoreProducts({
+      first: STORE_PRODUCTS_PAGE_SIZE,
+      search: searchQuery,
+    });
     initialProducts = data.products;
     pageInfo = data.pageInfo;
   } catch (e) {
@@ -95,11 +103,12 @@ export default async function StorePage({ searchParams }: StorePageProps) {
         </div>
       ) : (
         <StoreBrowse
-          key={activeFiltersKey(active)}
+          key={browseStateKey(active, searchQuery)}
           initialProducts={initialProducts}
           initialPageInfo={pageInfo}
           initialMemberPrices={Object.fromEntries(memberPrices)}
           active={active}
+          searchQuery={searchQuery}
           isMember={session?.isMembershipActive}
         />
       )}

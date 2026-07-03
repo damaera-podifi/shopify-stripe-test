@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import {
   addToCartAction,
@@ -115,9 +116,9 @@ export function AddToCartForm({ variants }: AddToCartFormProps) {
       {message.success ? (
         <p className="text-sm text-emerald-700 dark:text-emerald-400">
           Added to cart.{" "}
-          <a href="/store/cart" className="font-medium underline">
+          <Link href="/store/cart" className="font-medium underline">
             View cart
-          </a>
+          </Link>
         </p>
       ) : null}
     </form>
