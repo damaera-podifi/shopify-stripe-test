@@ -8,7 +8,11 @@ import {
   getApplicableVoucherCodes,
 } from "@/lib/checkout/cart-checkout";
 import { calculateCheckoutTotals } from "@/lib/checkout/calculate-checkout-totals";
-import { parseShippingFromBody } from "@/lib/checkout/validate-shipping";
+import {
+  parseShippingFromBody,
+  ShippingAddressValidationError,
+  validateShippingAddressWithShopify,
+} from "@/lib/checkout/validate-shipping";
 import { getCart } from "@/lib/shopify/cart";
 import { computeCartPostDiscountSubtotal } from "@/lib/shopify/cart-tax";
 import { getStripe } from "@/lib/stripe/server";
@@ -36,6 +40,8 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+
+    await validateShippingAddressWithShopify(shippingResult);
 
     const lineItems = buildCheckoutLineItemsFromCart(cart);
     const membershipDiscountAmount = computeMembershipDiscountAmount(cart);
@@ -114,6 +120,9 @@ export async function POST(request: Request) {
       currencyCode: checkoutTotals.currencyCode,
     });
   } catch (e) {
+    if (e instanceof ShippingAddressValidationError) {
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
     const message = e instanceof Error ? e.message : "Checkout failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }

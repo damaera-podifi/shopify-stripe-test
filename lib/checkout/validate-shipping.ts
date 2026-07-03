@@ -1,4 +1,29 @@
 import type { CheckoutShippingInput } from "./types";
+import {
+  applyCartDeliveryAddress,
+  type CartDeliveryAddressInput,
+} from "@/lib/shopify/cart";
+
+export { ShippingAddressValidationError } from "./shipping-address-validation-error";
+
+/** Validate shipping address against Shopify checkout rules via Storefront cart mutations. */
+export async function validateShippingAddressWithShopify(
+  shipping: CheckoutShippingInput,
+): Promise<void> {
+  const address: CartDeliveryAddressInput = {
+    email: shipping.email,
+    firstName: shipping.firstName,
+    lastName: shipping.lastName,
+    address1: shipping.address1,
+    address2: shipping.address2,
+    city: shipping.city,
+    province: shipping.province,
+    zip: shipping.zip,
+    country: shipping.country,
+  };
+
+  await applyCartDeliveryAddress(address);
+}
 
 export function parseShippingFromBody(
   body: Record<string, unknown>,

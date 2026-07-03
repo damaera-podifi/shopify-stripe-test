@@ -10,6 +10,7 @@ import {
 } from "./cart-membership";
 import { getStoreSession } from "@/lib/auth/session";
 import { logCheckoutError } from "@/lib/checkout/logger";
+import { ShippingAddressValidationError } from "@/lib/checkout/shipping-address-validation-error";
 import { storefrontMutation, storefrontQuery } from "./storefront";
 
 export const STORE_CART_CACHE_TAG = "store-cart";
@@ -675,6 +676,7 @@ function selectableDeliveryAddressInput(address: CartDeliveryAddressInput) {
   return {
     selected: true,
     oneTimeUse: true,
+    validationStrategy: "STRICT" as const,
     address: {
       deliveryAddress: {
         firstName: address.firstName,
@@ -791,7 +793,9 @@ export async function applyCartDeliveryAddress(
 
     const updateErrors = updateData.cartDeliveryAddressesUpdate.userErrors;
     if (updateErrors.length) {
-      throw new Error(updateErrors.map((error) => error.message).join(", "));
+      throw new ShippingAddressValidationError(
+        updateErrors.map((error) => error.message).join(", "),
+      );
     }
 
     const cart = normalizeCart(updateData.cartDeliveryAddressesUpdate.cart);
@@ -830,7 +834,9 @@ export async function applyCartDeliveryAddress(
 
   const errors = data.cartDeliveryAddressesAdd.userErrors;
   if (errors.length) {
-    throw new Error(errors.map((error) => error.message).join(", "));
+    throw new ShippingAddressValidationError(
+      errors.map((error) => error.message).join(", "),
+    );
   }
 
   const cart = normalizeCart(data.cartDeliveryAddressesAdd.cart);
