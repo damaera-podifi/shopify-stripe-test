@@ -117,6 +117,7 @@ export async function POST(request: Request) {
       clientSecret: paymentIntent.client_secret,
       totalAmount: checkoutTotals.totalAmount,
       taxAmount: checkoutTotals.taxAmount,
+      taxLines: checkoutTotals.taxLines,
       currencyCode: checkoutTotals.currencyCode,
     });
   } catch (e) {

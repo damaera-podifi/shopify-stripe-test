@@ -10,7 +10,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useCartCount } from "@/components/store/cart-count-context";
-import type { CheckoutShippingInput } from "@/lib/checkout/types";
+import type { CheckoutShippingInput, CheckoutTaxLine } from "@/lib/checkout/types";
 import { formatPrice } from "@/lib/shopify/products";
 
 type CheckoutFormProps = {
@@ -23,6 +23,7 @@ type CheckoutFormProps = {
   onCheckoutTotals?: (totals: {
     totalAmount: string;
     taxAmount: string;
+    taxLines: CheckoutTaxLine[];
     currencyCode: string;
   }) => void;
 };
@@ -305,6 +306,7 @@ export function CheckoutForm({
       clientSecret?: string;
       totalAmount?: string;
       taxAmount?: string;
+      taxLines?: CheckoutTaxLine[];
       currencyCode?: string;
       error?: string;
     };
@@ -321,6 +323,7 @@ export function CheckoutForm({
       onCheckoutTotals?.({
         totalAmount: data.totalAmount,
         taxAmount: data.taxAmount ?? "0.00",
+        taxLines: data.taxLines ?? [],
         currencyCode: data.currencyCode ?? currencyCode,
       });
     }
@@ -391,6 +394,7 @@ export function CheckoutForm({
           onCheckoutTotals?.({
             totalAmount,
             taxAmount: "0.00",
+            taxLines: [],
             currencyCode,
           });
         }}

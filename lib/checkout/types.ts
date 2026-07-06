@@ -10,6 +10,13 @@ export type CheckoutShippingInput = {
   country: string;
 };
 
+export type CheckoutTaxLine = {
+  title: string;
+  amount: string;
+  /** Decimal rate from Shopify (e.g. 0.06 = 6%). */
+  rate?: number;
+};
+
 export type CheckoutLineItemMeta = {
   variantId: string;
   quantity: number;

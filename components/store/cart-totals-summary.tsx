@@ -1,4 +1,6 @@
 import type { Cart } from "@/lib/shopify/cart";
+import type { CheckoutTaxLine } from "@/lib/checkout/types";
+import { formatTaxLineLabel } from "@/lib/checkout/format-tax-rate";
 import {
   computeCartDisplaySubtotal,
   computeMembershipDiscountAmount,
@@ -13,12 +15,14 @@ export function CartTotalsSummary({
   showMembershipNote = false,
   showTaxCalculatedAtCheckout = false,
   taxAmountOverride,
+  taxLinesOverride,
   totalAmountOverride,
 }: {
   cart: Cart;
   showMembershipNote?: boolean;
   showTaxCalculatedAtCheckout?: boolean;
   taxAmountOverride?: number | null;
+  taxLinesOverride?: CheckoutTaxLine[] | null;
   totalAmountOverride?: string | null;
 }) {
   const membershipDiscount = computeMembershipDiscountAmount(cart);
@@ -30,6 +34,7 @@ export function CartTotalsSummary({
     taxAmountOverride ?? computeCartTaxAmount(cart);
   const totalAmount =
     totalAmountOverride ?? cart.cost.totalAmount.amount;
+  const taxLines = taxLinesOverride ?? [];
 
   return (
     <div className="space-y-2">
@@ -49,7 +54,17 @@ export function CartTotalsSummary({
           <span>-{formatPrice(voucherDiscount.toFixed(2), currencyCode)}</span>
         </div>
       ) : null}
-      {taxAmount > 0.001 ? (
+      {taxLines.length > 0 ? (
+        taxLines.map((line) => (
+          <div
+            key={line.title}
+            className="flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400"
+          >
+            <span>{formatTaxLineLabel(line.title, line.rate)}</span>
+            <span>{formatPrice(line.amount, currencyCode)}</span>
+          </div>
+        ))
+      ) : taxAmount > 0.001 ? (
         <div className="flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400">
           <span>Tax</span>
           <span>{formatPrice(taxAmount.toFixed(2), currencyCode)}</span>

@@ -1,5 +1,6 @@
 import Image from "next/image";
 import type { OrderDetails } from "@/lib/checkout/order-details";
+import { formatTaxLineLabel } from "@/lib/checkout/format-tax-rate";
 import { formatPrice } from "@/lib/shopify/products";
 
 function StatusBadge({
@@ -26,6 +27,9 @@ export function OrderSummary({ order }: { order: OrderDetails }) {
     dateStyle: "medium",
     timeStyle: "short",
   });
+  const taxAmount = Number(order.tax.amount);
+  const showTaxLines = order.taxLines.length > 0;
+  const showAggregateTax = !showTaxLines && taxAmount > 0.001;
 
   return (
     <div className="mt-8 space-y-6 text-left">
@@ -103,6 +107,44 @@ export function OrderSummary({ order }: { order: OrderDetails }) {
             );
           })}
         </ul>
+
+        <div className="mt-5 space-y-2 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+          <div className="flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400">
+            <span>Subtotal</span>
+            <span>
+              {formatPrice(order.subtotal.amount, order.subtotal.currencyCode)}
+            </span>
+          </div>
+          {showTaxLines
+            ? order.taxLines.map((line) => (
+                <div
+                  key={line.title}
+                  className="flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400"
+                >
+                  <span>{formatTaxLineLabel(line.title, line.rate)}</span>
+                  <span>
+                    {order.taxesIncluded ? "" : "+"}
+                    {formatPrice(line.amount, order.tax.currencyCode)}
+                  </span>
+                </div>
+              ))
+            : null}
+          {showAggregateTax ? (
+            <div className="flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400">
+              <span>{order.taxesIncluded ? "Tax (included)" : "Tax"}</span>
+              <span>
+                {order.taxesIncluded ? "" : "+"}
+                {formatPrice(order.tax.amount, order.tax.currencyCode)}
+              </span>
+            </div>
+          ) : null}
+          <div className="flex items-center justify-between text-base font-semibold text-zinc-900 dark:text-zinc-50">
+            <span>Total</span>
+            <span className="text-emerald-700 dark:text-emerald-400">
+              {formatPrice(order.total.amount, order.total.currencyCode)}
+            </span>
+          </div>
+        </div>
       </section>
 
       {order.tracking.length > 0 ? (

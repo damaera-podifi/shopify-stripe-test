@@ -4,12 +4,17 @@ import {
   CHECKOUT_TAXES_INCLUDED,
   lineMembershipDiscountAmount,
 } from "./draft-order-lines";
-import type { CheckoutLineItemMeta, CheckoutShippingInput } from "./types";
+import type {
+  CheckoutLineItemMeta,
+  CheckoutShippingInput,
+  CheckoutTaxLine,
+} from "./types";
 import { adminGraphql } from "@/lib/shopify/admin";
 
 export type CalculatedCheckoutTotals = {
   subtotalAmount: string;
   taxAmount: string;
+  taxLines: CheckoutTaxLine[];
   totalAmount: string;
   currencyCode: string;
 };
@@ -75,6 +80,49 @@ function resolveTaxExclusiveTotals(options: {
   };
 }
 
+function resolveTaxLines(
+  shopifyTaxLines: Array<{ title: string; amount: number; rate?: number }>,
+  options: {
+    shopifyTax: number;
+    resolvedTax: number;
+    taxesIncluded: boolean;
+  },
+): CheckoutTaxLine[] {
+  if (shopifyTaxLines.length === 0 || options.resolvedTax <= 0) {
+    return [];
+  }
+
+  let lines: CheckoutTaxLine[];
+
+  if (
+    options.taxesIncluded &&
+    options.shopifyTax > 0 &&
+    Math.abs(options.resolvedTax - options.shopifyTax) > 0.001
+  ) {
+    const scale = options.resolvedTax / options.shopifyTax;
+    lines = shopifyTaxLines.map((line) => ({
+      title: line.title,
+      amount: roundMoney(line.amount * scale).toFixed(2),
+      ...(line.rate != null ? { rate: line.rate } : {}),
+    }));
+  } else {
+    lines = shopifyTaxLines.map((line) => ({
+      title: line.title,
+      amount: roundMoney(line.amount).toFixed(2),
+      ...(line.rate != null ? { rate: line.rate } : {}),
+    }));
+  }
+
+  const lineSum = lines.reduce((sum, line) => sum + Number(line.amount), 0);
+  const diff = roundMoney(options.resolvedTax - lineSum);
+  if (diff !== 0 && lines.length > 0) {
+    const last = lines[lines.length - 1];
+    last.amount = roundMoney(Number(last.amount) + diff).toFixed(2);
+  }
+
+  return lines;
+}
+
 /** Uses Admin draftOrderCalculate so tax matches Shopify order fulfillment. */
 export async function calculateCheckoutTotals(
   shipping: CheckoutShippingInput,
@@ -120,6 +168,15 @@ export async function calculateCheckoutTotals(
               currencyCode
             }
           }
+          taxLines {
+            title
+            rate
+            priceSet {
+              presentmentMoney {
+                amount
+              }
+            }
+          }
         }
         userErrors {
           message
@@ -141,6 +198,13 @@ export async function calculateCheckoutTotals(
         totalPriceSet: {
           presentmentMoney: { amount: string; currencyCode: string };
         };
+        taxLines: Array<{
+          title: string;
+          rate: number;
+          priceSet: {
+            presentmentMoney: { amount: string };
+          };
+        }>;
       } | null;
       userErrors: Array<{ message: string }>;
     };
@@ -189,8 +253,19 @@ export async function calculateCheckoutTotals(
     currencyCode,
   });
 
+  const shopifyTaxLines = calculated.taxLines.map((line) => ({
+    title: line.title,
+    amount: Number(line.priceSet.presentmentMoney.amount),
+    rate: line.rate,
+  }));
+
   return {
     ...resolved,
+    taxLines: resolveTaxLines(shopifyTaxLines, {
+      shopifyTax,
+      resolvedTax: Number(resolved.taxAmount),
+      taxesIncluded: calculated.taxesIncluded,
+    }),
     currencyCode,
   };
 }

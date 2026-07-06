@@ -36,11 +36,10 @@
       "shipping": {
         "firstName": "Lutfi",
         "lastName": "Damaera",
-        "address1": "1 Market Street",
-        "address2": "Suite 300",
-        "city": "San Francisco",
+        "address1": "123 Main Street",
+        "city": "Los Angeles",
         "province": "CA",
-        "zip": "94105",
+        "zip": "90001",
         "country": "US"
       }
     }

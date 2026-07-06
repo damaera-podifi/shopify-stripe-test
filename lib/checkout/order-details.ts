@@ -1,4 +1,5 @@
 import { adminGraphql } from "@/lib/shopify/admin";
+import type { CheckoutTaxLine } from "./types";
 import { APP_USER_ID_KEY, APP_USER_ID_NAMESPACE } from "@/lib/auth/user-id";
 import { findShopifyCustomerByEmail } from "@/lib/shopify/membership";
 import { fulfillStripePayment } from "./fulfillment";
@@ -57,6 +58,16 @@ export type OrderDetails = {
   cancelledAt: string | null;
   financialStatus: string;
   fulfillmentStatus: string;
+  subtotal: {
+    amount: string;
+    currencyCode: string;
+  };
+  tax: {
+    amount: string;
+    currencyCode: string;
+  };
+  taxesIncluded: boolean;
+  taxLines: CheckoutTaxLine[];
   total: {
     amount: string;
     currencyCode: string;
@@ -83,12 +94,35 @@ type AdminOrderResponse = {
     metafield: {
       value: string;
     } | null;
+    taxesIncluded: boolean;
+    subtotalPriceSet: {
+      shopMoney: {
+        amount: string;
+        currencyCode: string;
+      };
+    };
+    totalTaxSet: {
+      shopMoney: {
+        amount: string;
+        currencyCode: string;
+      };
+    };
     totalPriceSet: {
       shopMoney: {
         amount: string;
         currencyCode: string;
       };
     };
+    taxLines: Array<{
+      title: string;
+      rate: number;
+      priceSet: {
+        shopMoney: {
+          amount: string;
+          currencyCode: string;
+        };
+      };
+    }>;
     lineItems: {
       nodes: Array<{
         title: string;
@@ -153,10 +187,33 @@ const ORDER_DETAILS_QUERY = `#graphql
       metafield(namespace: "${APP_USER_ID_NAMESPACE}", key: "${APP_USER_ID_KEY}") {
         value
       }
+      taxesIncluded
+      subtotalPriceSet {
+        shopMoney {
+          amount
+          currencyCode
+        }
+      }
+      totalTaxSet {
+        shopMoney {
+          amount
+          currencyCode
+        }
+      }
       totalPriceSet {
         shopMoney {
           amount
           currencyCode
+        }
+      }
+      taxLines {
+        title
+        rate
+        priceSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
         }
       }
       lineItems(first: 50) {
@@ -318,6 +375,14 @@ export async function getShopifyOrderDetails(
     cancelledAt: order.cancelledAt,
     financialStatus: order.displayFinancialStatus,
     fulfillmentStatus: order.displayFulfillmentStatus,
+    subtotal: order.subtotalPriceSet.shopMoney,
+    tax: order.totalTaxSet.shopMoney,
+    taxesIncluded: order.taxesIncluded,
+    taxLines: order.taxLines.map((line) => ({
+      title: line.title,
+      amount: line.priceSet.shopMoney.amount,
+      rate: line.rate,
+    })),
     total: order.totalPriceSet.shopMoney,
     lineItems: order.lineItems.nodes.map((item) => ({
       title: item.title,

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { CheckoutPageClient } from "@/components/store/checkout-page-client";
+import { resolveCheckoutDefaultShipping } from "@/lib/checkout/default-shipping";
 import { getStoreSession } from "@/lib/auth/session";
 import {
   findUserByEmail,
@@ -16,7 +17,10 @@ export const metadata = {
 export default async function CheckoutPage() {
   const [cart, session] = await Promise.all([getCart(), getStoreSession()]);
   const user = session ? await findUserByEmail(session.email) : null;
-  const defaultShipping = user ? userRecordToCheckoutShipping(user) : null;
+  const defaultShipping = resolveCheckoutDefaultShipping({
+    sessionEmail: session?.email,
+    savedShipping: user ? userRecordToCheckoutShipping(user) : null,
+  });
 
   if (!cart || cart.lines.length === 0) {
     redirect("/store/cart");
@@ -65,7 +69,7 @@ export default async function CheckoutPage() {
       <CheckoutPageClient
         initialCart={cart}
         publishableKey={publishableKey}
-        defaultShipping={defaultShipping ?? undefined}
+        defaultShipping={defaultShipping}
         hasUnavailableItems={hasUnavailableItems}
       />
     </main>

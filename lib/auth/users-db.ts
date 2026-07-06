@@ -66,13 +66,9 @@ export async function findUserByEmail(
 
 export function userRecordToCheckoutShipping(
   user: StoreUserRecord,
-): CheckoutShippingInput | null {
-  if (!user.shipping) {
-    return null;
-  }
-
+): Partial<CheckoutShippingInput> {
   return {
     email: normalizeAuthEmail(user.email),
-    ...user.shipping,
+    ...(user.shipping ?? {}),
   };
 }

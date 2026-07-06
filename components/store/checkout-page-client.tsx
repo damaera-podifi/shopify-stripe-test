@@ -6,7 +6,7 @@ import { CheckoutForm } from "@/components/store/checkout-form";
 import { CheckoutLineItem } from "@/components/store/checkout-line-item";
 import { CartTotalsSummary } from "@/components/store/cart-totals-summary";
 import { DiscountCodeForm } from "@/components/store/discount-code-form";
-import type { CheckoutShippingInput } from "@/lib/checkout/types";
+import type { CheckoutShippingInput, CheckoutTaxLine } from "@/lib/checkout/types";
 import type { Cart } from "@/lib/shopify/cart";
 
 type CheckoutPageClientProps = {
@@ -24,6 +24,9 @@ export function CheckoutPageClient({
 }: CheckoutPageClientProps) {
   const [cart, setCart] = useState(initialCart);
   const [checkoutTaxAmount, setCheckoutTaxAmount] = useState<number | null>(null);
+  const [checkoutTaxLines, setCheckoutTaxLines] = useState<CheckoutTaxLine[] | null>(
+    null,
+  );
   const [checkoutTotalAmount, setCheckoutTotalAmount] = useState<string | null>(
     null,
   );
@@ -44,10 +47,11 @@ export function CheckoutPageClient({
           totalQuantity={cart.totalQuantity}
           disabled={hasUnavailableItems}
           defaultShipping={defaultShipping}
-          onCheckoutTotals={({ totalAmount, taxAmount }) => {
+          onCheckoutTotals={({ totalAmount, taxAmount, taxLines }) => {
             const tax = Number(taxAmount);
             setCheckoutTotalAmount(totalAmount);
             setCheckoutTaxAmount(tax > 0.001 ? tax : null);
+            setCheckoutTaxLines(taxLines.length > 0 ? taxLines : null);
           }}
         />
       </section>
@@ -66,6 +70,7 @@ export function CheckoutPageClient({
             cart={cart}
             showTaxCalculatedAtCheckout
             taxAmountOverride={checkoutTaxAmount}
+            taxLinesOverride={checkoutTaxLines}
             totalAmountOverride={checkoutTotalAmount}
           />
         </div>
