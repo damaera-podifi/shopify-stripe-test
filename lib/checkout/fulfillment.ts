@@ -62,6 +62,9 @@ async function createAndCompleteDraftOrder(
     membershipDiscountAmount?: number;
     voucherDiscountAmount?: number;
     discountCodes?: string[];
+    shippingRateHandle?: string;
+    shippingTitle?: string;
+    shippingAmount?: string;
   },
 ): Promise<FulfillmentResult> {
   logCheckout("draft_order_create_start", {
@@ -97,6 +100,16 @@ async function createAndCompleteDraftOrder(
     discountCodes,
     hasLineDiscounts,
   });
+
+  const shippingLine =
+    options?.shippingRateHandle
+      ? { shippingRateHandle: options.shippingRateHandle }
+      : options?.shippingTitle && options?.shippingAmount
+        ? {
+            title: options.shippingTitle,
+            price: options.shippingAmount,
+          }
+        : undefined;
 
   const createMutation = `#graphql
     mutation DraftOrderCreate($input: DraftOrderInput!) {
@@ -162,6 +175,7 @@ async function createAndCompleteDraftOrder(
         ...(orderLevelAppliedDiscount
           ? { appliedDiscount: orderLevelAppliedDiscount }
           : {}),
+        ...(shippingLine ? { shippingLine } : {}),
         shippingAddress: mailingAddress(shipping),
         billingAddress: mailingAddress(shipping),
       },
@@ -314,6 +328,10 @@ export async function fulfillStripePayment(
           ? voucherDiscountAmount
           : 0,
         discountCodes,
+        shippingRateHandle:
+          paymentIntent.metadata.shipping_rate_handle?.trim() || undefined,
+        shippingTitle: paymentIntent.metadata.shipping_title?.trim() || undefined,
+        shippingAmount: paymentIntent.metadata.shipping_amount?.trim() || undefined,
       },
     );
 

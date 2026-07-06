@@ -66,6 +66,11 @@ export type OrderDetails = {
     amount: string;
     currencyCode: string;
   };
+  shipping: {
+    title: string;
+    amount: string;
+    currencyCode: string;
+  } | null;
   taxesIncluded: boolean;
   taxLines: CheckoutTaxLine[];
   total: {
@@ -107,6 +112,21 @@ type AdminOrderResponse = {
         currencyCode: string;
       };
     };
+    totalShippingPriceSet: {
+      shopMoney: {
+        amount: string;
+        currencyCode: string;
+      };
+    };
+    shippingLine: {
+      title: string;
+      originalPriceSet: {
+        shopMoney: {
+          amount: string;
+          currencyCode: string;
+        };
+      };
+    } | null;
     totalPriceSet: {
       shopMoney: {
         amount: string;
@@ -198,6 +218,21 @@ const ORDER_DETAILS_QUERY = `#graphql
         shopMoney {
           amount
           currencyCode
+        }
+      }
+      totalShippingPriceSet {
+        shopMoney {
+          amount
+          currencyCode
+        }
+      }
+      shippingLine {
+        title
+        originalPriceSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
         }
       }
       totalPriceSet {
@@ -377,6 +412,19 @@ export async function getShopifyOrderDetails(
     fulfillmentStatus: order.displayFulfillmentStatus,
     subtotal: order.subtotalPriceSet.shopMoney,
     tax: order.totalTaxSet.shopMoney,
+    shipping: order.shippingLine
+      ? {
+          title: order.shippingLine.title,
+          amount: order.shippingLine.originalPriceSet.shopMoney.amount,
+          currencyCode: order.shippingLine.originalPriceSet.shopMoney.currencyCode,
+        }
+      : Number(order.totalShippingPriceSet.shopMoney.amount) > 0
+        ? {
+            title: "Shipping",
+            amount: order.totalShippingPriceSet.shopMoney.amount,
+            currencyCode: order.totalShippingPriceSet.shopMoney.currencyCode,
+          }
+        : null,
     taxesIncluded: order.taxesIncluded,
     taxLines: order.taxLines.map((line) => ({
       title: line.title,

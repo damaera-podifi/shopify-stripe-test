@@ -17,6 +17,13 @@ export type CheckoutTaxLine = {
   rate?: number;
 };
 
+export type CheckoutShippingLine = {
+  title: string;
+  amount: string;
+  /** Handle from draftOrderCalculate availableShippingRates — used at fulfillment. */
+  rateHandle?: string;
+};
+
 export type CheckoutLineItemMeta = {
   variantId: string;
   quantity: number;

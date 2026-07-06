@@ -7,17 +7,112 @@ import {
 import type {
   CheckoutLineItemMeta,
   CheckoutShippingInput,
+  CheckoutShippingLine,
   CheckoutTaxLine,
 } from "./types";
 import { adminGraphql } from "@/lib/shopify/admin";
 
 export type CalculatedCheckoutTotals = {
   subtotalAmount: string;
+  shippingAmount: string;
+  shippingTitle: string;
+  shippingRateHandle?: string;
   taxAmount: string;
   taxLines: CheckoutTaxLine[];
   totalAmount: string;
   currencyCode: string;
 };
+
+type DraftOrderShippingRate = {
+  handle: string;
+  title: string;
+  price: { amount: string };
+};
+
+type CalculatedDraftOrder = {
+  taxesIncluded: boolean;
+  subtotalPriceSet: {
+    presentmentMoney: { amount: string; currencyCode: string };
+  };
+  totalTaxSet: {
+    presentmentMoney: { amount: string; currencyCode: string };
+  };
+  totalPriceSet: {
+    presentmentMoney: { amount: string; currencyCode: string };
+  };
+  taxLines: Array<{
+    title: string;
+    rate: number;
+    priceSet: {
+      presentmentMoney: { amount: string };
+    };
+  }>;
+  availableShippingRates: DraftOrderShippingRate[];
+  shippingLine: {
+    title: string;
+    shippingRateHandle: string | null;
+    originalPriceSet: {
+      presentmentMoney: { amount: string; currencyCode: string };
+    };
+  } | null;
+};
+
+const DRAFT_ORDER_CALCULATE_MUTATION = `#graphql
+  mutation DraftOrderCalculate($input: DraftOrderInput!) {
+    draftOrderCalculate(input: $input) {
+      calculatedDraftOrder {
+        taxesIncluded
+        subtotalPriceSet {
+          presentmentMoney {
+            amount
+            currencyCode
+          }
+        }
+        totalTaxSet {
+          presentmentMoney {
+            amount
+            currencyCode
+          }
+        }
+        totalPriceSet {
+          presentmentMoney {
+            amount
+            currencyCode
+          }
+        }
+        taxLines {
+          title
+          rate
+          priceSet {
+            presentmentMoney {
+              amount
+            }
+          }
+        }
+        availableShippingRates {
+          handle
+          title
+          price {
+            amount
+          }
+        }
+        shippingLine {
+          title
+          shippingRateHandle
+          originalPriceSet {
+            presentmentMoney {
+              amount
+              currencyCode
+            }
+          }
+        }
+      }
+      userErrors {
+        message
+      }
+    }
+  }
+`;
 
 function mailingAddress(shipping: CheckoutShippingInput) {
   return {
@@ -36,6 +131,55 @@ function roundMoney(amount: number): number {
   return Math.round(amount * 100) / 100;
 }
 
+function selectDefaultShippingRate(
+  rates: DraftOrderShippingRate[],
+): DraftOrderShippingRate | null {
+  if (rates.length === 0) {
+    return null;
+  }
+
+  return rates.reduce((cheapest, rate) => {
+    const price = Number(rate.price.amount);
+    const cheapestPrice = Number(cheapest.price.amount);
+    return price < cheapestPrice ? rate : cheapest;
+  });
+}
+
+function buildShippingLineInput(rate: DraftOrderShippingRate) {
+  if (rate.handle) {
+    return { shippingRateHandle: rate.handle };
+  }
+
+  return {
+    title: rate.title,
+    price: rate.price.amount,
+  };
+}
+
+function resolveShippingLine(
+  calculated: CalculatedDraftOrder,
+  selectedRate: DraftOrderShippingRate | null,
+): CheckoutShippingLine {
+  const fromCalculated = calculated.shippingLine;
+  if (fromCalculated) {
+    return {
+      title: fromCalculated.title,
+      amount: fromCalculated.originalPriceSet.presentmentMoney.amount,
+      rateHandle: fromCalculated.shippingRateHandle ?? selectedRate?.handle,
+    };
+  }
+
+  if (selectedRate) {
+    return {
+      title: selectedRate.title,
+      amount: selectedRate.price.amount,
+      rateHandle: selectedRate.handle,
+    };
+  }
+
+  return { title: "Shipping", amount: "0.00" };
+}
+
 /**
  * When the shop has tax-inclusive prices, derive an effective rate from Shopify's
  * draft calculation and apply it to the customer-facing post-discount subtotal.
@@ -44,10 +188,13 @@ function resolveTaxExclusiveTotals(options: {
   postDiscountSubtotal: number;
   shopifySubtotal: number;
   shopifyTax: number;
+  shopifyShipping: number;
   shopifyTotal: number;
   taxesIncluded: boolean;
-  currencyCode: string;
-}): Pick<CalculatedCheckoutTotals, "subtotalAmount" | "taxAmount" | "totalAmount"> {
+}): Pick<
+  CalculatedCheckoutTotals,
+  "subtotalAmount" | "taxAmount" | "totalAmount"
+> {
   const taxableSubtotal =
     options.postDiscountSubtotal > 0
       ? options.postDiscountSubtotal
@@ -65,7 +212,9 @@ function resolveTaxExclusiveTotals(options: {
   }
 
   if (!CHECKOUT_TAXES_INCLUDED) {
-    const total = roundMoney(taxableSubtotal + tax);
+    const total = roundMoney(
+      taxableSubtotal + tax + options.shopifyShipping,
+    );
     return {
       subtotalAmount: taxableSubtotal.toFixed(2),
       taxAmount: tax.toFixed(2),
@@ -123,7 +272,30 @@ function resolveTaxLines(
   return lines;
 }
 
-/** Uses Admin draftOrderCalculate so tax matches Shopify order fulfillment. */
+async function runDraftOrderCalculate(
+  input: Record<string, unknown>,
+): Promise<CalculatedDraftOrder> {
+  const data = await adminGraphql<{
+    draftOrderCalculate: {
+      calculatedDraftOrder: CalculatedDraftOrder | null;
+      userErrors: Array<{ message: string }>;
+    };
+  }>(DRAFT_ORDER_CALCULATE_MUTATION, { input }, { operation: "draftOrderCalculate" });
+
+  const errors = data.draftOrderCalculate.userErrors;
+  if (errors.length) {
+    throw new Error(errors.map((error) => error.message).join(", "));
+  }
+
+  const calculated = data.draftOrderCalculate.calculatedDraftOrder;
+  if (!calculated) {
+    throw new Error("Failed to calculate checkout totals");
+  }
+
+  return calculated;
+}
+
+/** Uses Admin draftOrderCalculate so tax and shipping match Shopify order fulfillment. */
 export async function calculateCheckoutTotals(
   shipping: CheckoutShippingInput,
   lineItems: CheckoutLineItemMeta[],
@@ -145,97 +317,31 @@ export async function calculateCheckoutTotals(
     hasLineDiscounts,
   });
 
-  const mutation = `#graphql
-    mutation DraftOrderCalculate($input: DraftOrderInput!) {
-      draftOrderCalculate(input: $input) {
-        calculatedDraftOrder {
-          taxesIncluded
-          subtotalPriceSet {
-            presentmentMoney {
-              amount
-              currencyCode
-            }
-          }
-          totalTaxSet {
-            presentmentMoney {
-              amount
-              currencyCode
-            }
-          }
-          totalPriceSet {
-            presentmentMoney {
-              amount
-              currencyCode
-            }
-          }
-          taxLines {
-            title
-            rate
-            priceSet {
-              presentmentMoney {
-                amount
-              }
-            }
-          }
-        }
-        userErrors {
-          message
-        }
-      }
-    }
-  `;
+  const baseInput = {
+    email: shipping.email,
+    ...(options.shopifyCustomerId
+      ? { customerId: options.shopifyCustomerId }
+      : {}),
+    lineItems: lineItems.map((item) => buildDraftOrderLineItemInput(item)),
+    ...(orderLevelAppliedDiscount
+      ? { appliedDiscount: orderLevelAppliedDiscount }
+      : {}),
+    shippingAddress: mailingAddress(shipping),
+    billingAddress: mailingAddress(shipping),
+  };
 
-  const data = await adminGraphql<{
-    draftOrderCalculate: {
-      calculatedDraftOrder: {
-        taxesIncluded: boolean;
-        subtotalPriceSet: {
-          presentmentMoney: { amount: string; currencyCode: string };
-        };
-        totalTaxSet: {
-          presentmentMoney: { amount: string; currencyCode: string };
-        };
-        totalPriceSet: {
-          presentmentMoney: { amount: string; currencyCode: string };
-        };
-        taxLines: Array<{
-          title: string;
-          rate: number;
-          priceSet: {
-            presentmentMoney: { amount: string };
-          };
-        }>;
-      } | null;
-      userErrors: Array<{ message: string }>;
-    };
-  }>(
-    mutation,
-    {
-      input: {
-        email: shipping.email,
-        ...(options.shopifyCustomerId
-          ? { customerId: options.shopifyCustomerId }
-          : {}),
-        lineItems: lineItems.map((item) => buildDraftOrderLineItemInput(item)),
-        ...(orderLevelAppliedDiscount
-          ? { appliedDiscount: orderLevelAppliedDiscount }
-          : {}),
-        shippingAddress: mailingAddress(shipping),
-        billingAddress: mailingAddress(shipping),
-      },
-    },
-    { operation: "draftOrderCalculate" },
-  );
+  const initial = await runDraftOrderCalculate(baseInput);
+  const selectedRate = selectDefaultShippingRate(initial.availableShippingRates);
 
-  const errors = data.draftOrderCalculate.userErrors;
-  if (errors.length) {
-    throw new Error(errors.map((error) => error.message).join(", "));
-  }
+  const calculated = selectedRate
+    ? await runDraftOrderCalculate({
+        ...baseInput,
+        shippingLine: buildShippingLineInput(selectedRate),
+      })
+    : initial;
 
-  const calculated = data.draftOrderCalculate.calculatedDraftOrder;
-  if (!calculated) {
-    throw new Error("Failed to calculate checkout totals");
-  }
+  const shippingLine = resolveShippingLine(calculated, selectedRate);
+  const shopifyShipping = Number(shippingLine.amount);
 
   const shopifySubtotal = Number(
     calculated.subtotalPriceSet.presentmentMoney.amount,
@@ -248,9 +354,9 @@ export async function calculateCheckoutTotals(
     postDiscountSubtotal: options.postDiscountSubtotal,
     shopifySubtotal,
     shopifyTax,
+    shopifyShipping,
     shopifyTotal,
     taxesIncluded: calculated.taxesIncluded,
-    currencyCode,
   });
 
   const shopifyTaxLines = calculated.taxLines.map((line) => ({
@@ -261,6 +367,11 @@ export async function calculateCheckoutTotals(
 
   return {
     ...resolved,
+    shippingAmount: shippingLine.amount,
+    shippingTitle: shippingLine.title,
+    ...(shippingLine.rateHandle
+      ? { shippingRateHandle: shippingLine.rateHandle }
+      : {}),
     taxLines: resolveTaxLines(shopifyTaxLines, {
       shopifyTax,
       resolvedTax: Number(resolved.taxAmount),

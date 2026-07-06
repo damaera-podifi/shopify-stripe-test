@@ -103,6 +103,11 @@ export async function POST(request: Request) {
         discount_codes: JSON.stringify(discountCodes),
         shopify_customer_id: shopifyCustomerId,
         tax_amount: checkoutTotals.taxAmount,
+        shipping_amount: checkoutTotals.shippingAmount,
+        shipping_title: checkoutTotals.shippingTitle,
+        ...(checkoutTotals.shippingRateHandle
+          ? { shipping_rate_handle: checkoutTotals.shippingRateHandle }
+          : {}),
       },
     });
 
@@ -116,6 +121,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       clientSecret: paymentIntent.client_secret,
       totalAmount: checkoutTotals.totalAmount,
+      shippingAmount: checkoutTotals.shippingAmount,
+      shippingTitle: checkoutTotals.shippingTitle,
       taxAmount: checkoutTotals.taxAmount,
       taxLines: checkoutTotals.taxLines,
       currencyCode: checkoutTotals.currencyCode,

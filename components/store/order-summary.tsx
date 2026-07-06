@@ -30,6 +30,8 @@ export function OrderSummary({ order }: { order: OrderDetails }) {
   const taxAmount = Number(order.tax.amount);
   const showTaxLines = order.taxLines.length > 0;
   const showAggregateTax = !showTaxLines && taxAmount > 0.001;
+  const showShipping =
+    order.shipping != null && Number(order.shipping.amount) >= 0;
 
   return (
     <div className="mt-8 space-y-6 text-left">
@@ -115,30 +117,54 @@ export function OrderSummary({ order }: { order: OrderDetails }) {
               {formatPrice(order.subtotal.amount, order.subtotal.currencyCode)}
             </span>
           </div>
-          {showTaxLines
-            ? order.taxLines.map((line) => (
-                <div
-                  key={line.title}
-                  className="flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400"
-                >
-                  <span>{formatTaxLineLabel(line.title, line.rate)}</span>
-                  <span>
-                    {order.taxesIncluded ? "" : "+"}
-                    {formatPrice(line.amount, order.tax.currencyCode)}
-                  </span>
-                </div>
-              ))
-            : null}
-          {showAggregateTax ? (
-            <div className="flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400">
-              <span>{order.taxesIncluded ? "Tax (included)" : "Tax"}</span>
-              <span>
-                {order.taxesIncluded ? "" : "+"}
-                {formatPrice(order.tax.amount, order.tax.currencyCode)}
-              </span>
+          {showShipping ? (
+            <div className="space-y-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Shipping
+              </p>
+              <div className="flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400">
+                <span>{order.shipping!.title}</span>
+                <span>
+                  {order.taxesIncluded ? "" : "+"}
+                  {formatPrice(
+                    order.shipping!.amount,
+                    order.shipping!.currencyCode,
+                  )}
+                </span>
+              </div>
             </div>
           ) : null}
-          <div className="flex items-center justify-between text-base font-semibold text-zinc-900 dark:text-zinc-50">
+          {showTaxLines || showAggregateTax ? (
+            <div className="space-y-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Tax
+              </p>
+              {showTaxLines
+                ? order.taxLines.map((line) => (
+                    <div
+                      key={line.title}
+                      className="flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400"
+                    >
+                      <span>{formatTaxLineLabel(line.title, line.rate)}</span>
+                      <span>
+                        {order.taxesIncluded ? "" : "+"}
+                        {formatPrice(line.amount, order.tax.currencyCode)}
+                      </span>
+                    </div>
+                  ))
+                : null}
+              {showAggregateTax ? (
+                <div className="flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400">
+                  <span>{order.taxesIncluded ? "Tax (included)" : "Estimated tax"}</span>
+                  <span>
+                    {order.taxesIncluded ? "" : "+"}
+                    {formatPrice(order.tax.amount, order.tax.currencyCode)}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="flex items-center justify-between border-t border-zinc-200 pt-3 text-base font-semibold text-zinc-900 dark:border-zinc-800 dark:text-zinc-50">
             <span>Total</span>
             <span className="text-emerald-700 dark:text-emerald-400">
               {formatPrice(order.total.amount, order.total.currencyCode)}

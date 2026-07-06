@@ -22,9 +22,11 @@ type CheckoutFormProps = {
   defaultShipping?: Partial<CheckoutShippingInput>;
   onCheckoutTotals?: (totals: {
     totalAmount: string;
-    taxAmount: string;
-    taxLines: CheckoutTaxLine[];
-    currencyCode: string;
+    shippingAmount?: string;
+    shippingTitle?: string;
+    taxAmount?: string;
+    taxLines?: CheckoutTaxLine[];
+    currencyCode?: string;
   }) => void;
 };
 
@@ -249,7 +251,7 @@ function PaymentStep({
       </div>
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
         Paying for {totalQuantity} item{totalQuantity === 1 ? "" : "s"} including
-        tax where applicable.
+        shipping and tax where applicable.
       </p>
     </form>
   );
@@ -305,6 +307,8 @@ export function CheckoutForm({
     const data = (await res.json()) as {
       clientSecret?: string;
       totalAmount?: string;
+      shippingAmount?: string;
+      shippingTitle?: string;
       taxAmount?: string;
       taxLines?: CheckoutTaxLine[];
       currencyCode?: string;
@@ -322,6 +326,8 @@ export function CheckoutForm({
       setCheckoutTotalAmount(data.totalAmount);
       onCheckoutTotals?.({
         totalAmount: data.totalAmount,
+        shippingAmount: data.shippingAmount ?? "0.00",
+        shippingTitle: data.shippingTitle ?? "Shipping",
         taxAmount: data.taxAmount ?? "0.00",
         taxLines: data.taxLines ?? [],
         currencyCode: data.currencyCode ?? currencyCode,
@@ -391,12 +397,7 @@ export function CheckoutForm({
         onBack={() => {
           setClientSecret(null);
           setCheckoutTotalAmount(totalAmount);
-          onCheckoutTotals?.({
-            totalAmount,
-            taxAmount: "0.00",
-            taxLines: [],
-            currencyCode,
-          });
+          onCheckoutTotals?.({ totalAmount });
         }}
       />
     </Elements>

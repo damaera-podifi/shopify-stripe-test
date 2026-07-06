@@ -27,6 +27,12 @@ export function CheckoutPageClient({
   const [checkoutTaxLines, setCheckoutTaxLines] = useState<CheckoutTaxLine[] | null>(
     null,
   );
+  const [checkoutShippingAmount, setCheckoutShippingAmount] = useState<number | null>(
+    null,
+  );
+  const [checkoutShippingTitle, setCheckoutShippingTitle] = useState<string | null>(
+    null,
+  );
   const [checkoutTotalAmount, setCheckoutTotalAmount] = useState<string | null>(
     null,
   );
@@ -47,11 +53,28 @@ export function CheckoutPageClient({
           totalQuantity={cart.totalQuantity}
           disabled={hasUnavailableItems}
           defaultShipping={defaultShipping}
-          onCheckoutTotals={({ totalAmount, taxAmount, taxLines }) => {
-            const tax = Number(taxAmount);
-            setCheckoutTotalAmount(totalAmount);
-            setCheckoutTaxAmount(tax > 0.001 ? tax : null);
-            setCheckoutTaxLines(taxLines.length > 0 ? taxLines : null);
+          onCheckoutTotals={(totals) => {
+            setCheckoutTotalAmount(totals.totalAmount);
+            if (totals.taxAmount != null) {
+              const tax = Number(totals.taxAmount);
+              setCheckoutTaxAmount(tax > 0.001 ? tax : null);
+              setCheckoutTaxLines(
+                totals.taxLines && totals.taxLines.length > 0
+                  ? totals.taxLines
+                  : null,
+              );
+            } else {
+              setCheckoutTaxAmount(null);
+              setCheckoutTaxLines(null);
+            }
+            if (totals.shippingAmount != null) {
+              const shipping = Number(totals.shippingAmount);
+              setCheckoutShippingAmount(Number.isFinite(shipping) ? shipping : null);
+              setCheckoutShippingTitle(totals.shippingTitle ?? "Shipping");
+            } else {
+              setCheckoutShippingAmount(null);
+              setCheckoutShippingTitle(null);
+            }
           }}
         />
       </section>
@@ -69,6 +92,8 @@ export function CheckoutPageClient({
           <CartTotalsSummary
             cart={cart}
             showTaxCalculatedAtCheckout
+            shippingAmountOverride={checkoutShippingAmount}
+            shippingTitleOverride={checkoutShippingTitle}
             taxAmountOverride={checkoutTaxAmount}
             taxLinesOverride={checkoutTaxLines}
             totalAmountOverride={checkoutTotalAmount}
